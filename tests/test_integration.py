@@ -22,6 +22,14 @@ AUTO_RETRIEVE = str(HOOKS_DIR / "auto-retrieve.py")
 class TestDualModeDetection(unittest.TestCase):
     """Test auto-retrieve.py hook in markdown-fallback mode."""
 
+    def setUp(self):
+        """Clean up stale session counters from previous runs."""
+        import shutil
+        state_dir = Path.home() / ".ok-mnemosyne" / "state"
+        if state_dir.exists():
+            for f in state_dir.glob("auto-retrieve-test-*.count"):
+                f.unlink(missing_ok=True)
+
     def _run_hook(self, stdin_data: str, extra_env: dict | None = None) -> subprocess.CompletedProcess:
         """Run auto-retrieve.py as a subprocess with given stdin."""
         env = os.environ.copy()
