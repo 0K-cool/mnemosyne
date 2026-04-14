@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/banner.jpg" alt="ØK Mnemosyne Banner" width="100%" />
+</p>
+
 # Mnemosyne
 
 **Structured AI memory for professionals. 100% local. Zero cloud. Security-first.**
