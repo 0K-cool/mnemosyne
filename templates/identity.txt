@@ -1,0 +1,5 @@
+Name: [Your AI assistant name]
+User: [Your name]
+Role: [Your professional role]
+Location: [Your location/timezone]
+Purpose: [What this AI helps you with]
