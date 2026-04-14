@@ -10,7 +10,7 @@ description: |
 
 # Setup RAG — Enhanced Retrieval Bootstrap
 
-Upgrades ok-mnemosyne from keyword-based retrieval (~60% accuracy) to
+Upgrades Mnemosyne from keyword-based retrieval (~60% accuracy) to
 semantic hybrid retrieval (100% accuracy on LongMemEval benchmark).
 
 **Announce at start:** "Setting up ok-rag for enhanced semantic retrieval. This is a 9-step guided process — each step is idempotent, so you can re-run safely if anything fails."

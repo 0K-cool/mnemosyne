@@ -1,6 +1,6 @@
 # Memory Files
 
-This directory stores persistent memory files for ok-mnemosyne.
+This directory stores persistent memory files for Mnemosyne.
 
 Each file has YAML frontmatter with:
 - `name`: Memory identifier

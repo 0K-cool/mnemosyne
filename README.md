@@ -1,4 +1,4 @@
-# ok-mnemosyne
+# Mnemosyne
 
 **Structured AI memory for professionals. 100% local. Zero cloud. Security-first.**
 
@@ -7,7 +7,7 @@ By [ZerOK Labs](https://zeroklabs.ai) — part of the ØK product suite.
 ## Install
 
 ```
-claude plugins install ok-mnemosyne
+claude plugins install mnemosyne
 ```
 
 That's it. Zero dependencies. Works immediately.
@@ -33,9 +33,9 @@ This guided setup installs [ok-rag](https://github.com/0K-cool/ok-rag) — a hyb
 
 | Configuration | Retrieval R@5 | Dependencies |
 |---|:---:|---|
-| ok-mnemosyne alone | ~60% | Zero |
-| ok-mnemosyne + ok-rag (core) | ~88% | ~150MB |
-| ok-mnemosyne + ok-rag (full) | 100% | ~2.5GB |
+| mnemosyne alone | ~60% | Zero |
+| mnemosyne + ok-rag (core) | ~88% | ~150MB |
+| mnemosyne + ok-rag (full) | 100% | ~2.5GB |
 
 Benchmarked on [LongMemEval](https://arxiv.org/abs/2410.10813).
 

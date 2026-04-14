@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * memory-validation.ts — PreToolUse hook for ok-mnemosyne.
+ * memory-validation.ts — PreToolUse hook for Mnemosyne.
  *
  * Blocks memory poisoning attempts targeting Write/Edit tool calls that write
  * to memory files (paths containing "/memory/" or ending with "MEMORY.md").

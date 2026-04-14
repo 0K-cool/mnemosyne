@@ -1,4 +1,4 @@
-"""Integration tests for ok-mnemosyne.
+"""Integration tests for Mnemosyne.
 
 Tests cover:
   - Dual-mode detection in auto-retrieve.py (markdown fallback vs RAG)
@@ -25,7 +25,7 @@ class TestDualModeDetection(unittest.TestCase):
     def setUp(self):
         """Clean up stale session counters from previous runs."""
         import shutil
-        state_dir = Path.home() / ".ok-mnemosyne" / "state"
+        state_dir = Path.home() / ".mnemosyne" / "state"
         if state_dir.exists():
             for f in state_dir.glob("auto-retrieve-test-*.count"):
                 f.unlink(missing_ok=True)
@@ -109,12 +109,12 @@ class TestPluginStructure(unittest.TestCase):
         self.assertTrue((PLUGIN_DIR / "plugin.json").is_file(), "plugin.json not found")
 
     def test_plugin_json_valid(self):
-        """plugin.json must be valid JSON with name='ok-mnemosyne' and features.mcpServer=False."""
+        """plugin.json must be valid JSON with name='mnemosyne' and features.mcpServer=False."""
         plugin_path = PLUGIN_DIR / "plugin.json"
         with open(plugin_path) as fh:
             data = json.load(fh)
 
-        self.assertEqual(data.get("name"), "ok-mnemosyne", "plugin.json name mismatch")
+        self.assertEqual(data.get("name"), "mnemosyne", "plugin.json name mismatch")
         self.assertFalse(
             data.get("features", {}).get("mcpServer"),
             "Expected features.mcpServer=false",

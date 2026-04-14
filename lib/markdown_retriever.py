@@ -56,7 +56,7 @@ def _tokenize(text: str) -> set:
 
 
 class MarkdownRetriever:
-    """Zero-dependency MEMORY.md-aware retrieval for ok-mnemosyne."""
+    """Zero-dependency MEMORY.md-aware retrieval for Mnemosyne."""
 
     def __init__(self, memory_dir: str):
         self.memory_dir = Path(memory_dir)

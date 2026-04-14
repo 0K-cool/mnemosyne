@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-auto-retrieve.py — Dual-mode UserPromptSubmit hook for ok-mnemosyne.
+auto-retrieve.py — Dual-mode UserPromptSubmit hook for Mnemosyne.
 
 On every substantive user prompt, this hook:
   1. Searches memory for relevant context (RAG or Markdown fallback)
@@ -28,7 +28,7 @@ MAX_SESSION_SEARCHES = 3        # Limit auto-searches per session to avoid noise
 MAX_RESULTS = 3                 # Results injected per search
 MAX_CONTEXT_CHARS = 2000        # Cap total injected context length
 
-STATE_DIR = Path(os.path.expanduser("~/.ok-mnemosyne/state"))
+STATE_DIR = Path(os.path.expanduser("~/.mnemosyne/state"))
 
 # ---------------------------------------------------------------------------
 # Session search counter (persists in STATE_DIR for the session lifetime)
