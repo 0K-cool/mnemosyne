@@ -1,0 +1,33 @@
+{
+  "name": "ok-mnemosyne",
+  "version": "1.0.0",
+  "description": "Structured AI memory for professionals. 100% local. Zero cloud. Security-first.",
+  "author": "ZerOK Labs",
+  "repository": "https://github.com/0K-cool/ok-mnemosyne",
+  "license": "MIT",
+  "compatibleWith": {
+    "claudeCode": ">=2.1.0"
+  },
+  "commands": [
+    {
+      "name": "mnemosyne-setup-rag",
+      "file": "skills/setup-rag/SKILL.md",
+      "description": "Bootstrap ok-rag for enhanced semantic retrieval (optional)"
+    }
+  ],
+  "features": {
+    "mcpServer": false,
+    "cliTools": false,
+    "pythonLibrary": false,
+    "slashCommands": true,
+    "hooks": true,
+    "agents": false
+  },
+  "optionalIntegrations": {
+    "ok-rag": {
+      "description": "Hybrid semantic retrieval (vector + BM25 + BGE reranker). Upgrades recall from ~60% to 100%.",
+      "setupCommand": "/mnemosyne-setup-rag",
+      "requiredMcpTool": "search_kb"
+    }
+  }
+}
