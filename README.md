@@ -3,17 +3,21 @@
 </p>
 
 <p align="center">
+  <strong>Structured AI memory for professionals. 100% local. Zero cloud. Security-first.</strong>
+</p>
+
+<p align="center">
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <img src="https://img.shields.io/badge/version-1.0.0-green.svg" alt="Version 1.0.0" />
   <img src="https://img.shields.io/badge/tests-106%20passing-brightgreen.svg" alt="106 tests passing" />
   <img src="https://img.shields.io/badge/dependencies-zero-orange.svg" alt="Zero dependencies" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
+  <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
+  <img src="https://img.shields.io/badge/Forged_in-Puerto_Rico_🇵🇷-cc0000.svg" alt="Forged in Puerto Rico" />
 </p>
 
 # Mnemosyne
-
-**Structured AI memory for professionals. 100% local. Zero cloud. Security-first.**
 
 By [ZerOK Labs](https://zeroklabs.ai) — part of the 0K product suite.
 
@@ -170,12 +174,3 @@ make test-integration  # Hook I/O + plugin structure
 
 MIT
 
----
-
-<p align="center">
-  <img src="https://img.shields.io/badge/ZerOK%20Labs-0K-1a1a2e?style=for-the-badge&labelColor=1a1a2e&color=1a1a2e" alt="ZerOK Labs 0K" />
-  <br />
-  <img src="https://img.shields.io/badge/Forged%20in-Puerto%20Rico%20%F0%9F%87%B5%F0%9F%87%B7-cc0000?style=for-the-badge&labelColor=1a1a2e&color=cc0000" alt="Forged in Puerto Rico" />
-  <br />
-  <sub>Minimal noise. Maximum clarity.</sub>
-</p>
