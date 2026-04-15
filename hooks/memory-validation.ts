@@ -25,23 +25,23 @@
 // Types
 // ---------------------------------------------------------------------------
 
-interface HookInput {
+export interface HookInput {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   session_id?: string;
   [key: string]: unknown;
 }
 
-interface AllowDecision {
+export interface AllowDecision {
   decision: "allow";
 }
 
-interface BlockDecision {
+export interface BlockDecision {
   decision: "block";
   reason: string;
 }
 
-type Decision = AllowDecision | BlockDecision;
+export type Decision = AllowDecision | BlockDecision;
 
 interface InjectionPattern {
   pattern: RegExp;
@@ -52,7 +52,7 @@ interface InjectionPattern {
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_FILE_SIZE_BYTES = 50 * 1024; // 50 KB
+export const MAX_FILE_SIZE_BYTES = 50 * 1024; // 50 KB
 
 // Tools that write file content
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
@@ -61,7 +61,7 @@ const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
 // Injection pattern definitions
 // ---------------------------------------------------------------------------
 
-const INJECTION_PATTERNS: InjectionPattern[] = [
+export const INJECTION_PATTERNS: InjectionPattern[] = [
   {
     pattern: /ignore\s+(?:all\s+)?previous\s+instructions?/i,
     description: "Prompt injection: ignore previous instructions",
@@ -105,7 +105,7 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
 // ---------------------------------------------------------------------------
 
 /** Normalise Unicode to NFKC and strip zero-width characters for pattern matching. */
-function normaliseText(text: string): string {
+export function normaliseText(text: string): string {
   let normalised = text.normalize("NFKC");
   // Strip zero-width and invisible characters
   normalised = normalised.replace(/[\u200b-\u200d\ufeff\u00a0]/g, " ");
@@ -113,7 +113,7 @@ function normaliseText(text: string): string {
 }
 
 /** Return true if the file path targets a memory file. */
-function isMemoryFile(filePath: string): boolean {
+export function isMemoryFile(filePath: string): boolean {
   if (!filePath) return false;
   // Matches /memory/ anywhere in path, or filename is MEMORY.md
   return filePath.includes("/memory/") || filePath.endsWith("MEMORY.md");
@@ -125,7 +125,7 @@ function extractFilePath(toolName: string, input: Record<string, unknown>): stri
 }
 
 /** Extract the content to be written from tool_input. */
-function extractContent(toolName: string, input: Record<string, unknown>): string {
+export function extractContent(toolName: string, input: Record<string, unknown>): string {
   // Write tool uses "content"
   const content = input.content;
   if (typeof content === "string") return content;
@@ -155,7 +155,7 @@ function extractContent(toolName: string, input: Record<string, unknown>): strin
 // Core validation
 // ---------------------------------------------------------------------------
 
-function validateMemoryWrite(
+export function validateMemoryWrite(
   filePath: string,
   content: string
 ): Decision {
@@ -246,4 +246,6 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+if (import.meta.main) {
+  main();
+}
