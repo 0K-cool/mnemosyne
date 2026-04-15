@@ -71,23 +71,23 @@ Each component has one job. No overlap. Clear boundaries.
 | `/mine-session` | Extracts value from past conversations | Your archivist |
 | L3 validation | Blocks poisoning, injection, data stuffing | Your immune system |
 
-With optional [0k-rag](https://github.com/0K-cool/0k-rag):
+With optional [0K-RAG](https://github.com/0K-cool/0k-rag):
 
 | Component | Role | Analogy |
 |---|---|---|
-| 0k-rag | Hybrid semantic search across all indexed knowledge | Your library |
+| 0K-RAG | Hybrid semantic search across all indexed knowledge | Your library |
 
 **Design principle:** The journal doesn't search. The library doesn't store decisions. The immune system doesn't retrieve. Each piece does one thing well.
 
 ## Architecture
 
 ```
-INSTALL (zero-dep)          + 0k-rag (optional)
+INSTALL (zero-dep)          + 0K-RAG (optional)
 ========================    ========================
 identity.txt ──► cold-start
 MEMORY.md ──► keyword index
 memory/ ──► file storage
-hooks/ ──► auto-save,        0k-rag ──► vector + BM25
+hooks/ ──► auto-save,        0K-RAG ──► vector + BM25
            auto-retrieve,              + RRF + BGE
            memory-validation            reranking
 skills/ ──► /gotcha,
@@ -104,8 +104,8 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 | Configuration | Session R@5 | Turn R@5 | MRR | Dependencies |
 |---|:---:|:---:|:---:|---|
 | Mnemosyne alone | 81.1% | — | 59.7% | Zero |
-| Mnemosyne + 0k-rag core | **100.0%** | **93.0%** | 70.0% | Ollama + LanceDB |
-| Mnemosyne + 0k-rag full | **100.0%** | 91.5% | **74.3%** | Ollama + LanceDB + BGE reranker |
+| Mnemosyne + 0K-RAG core | **100.0%** | **93.0%** | 70.0% | Ollama + LanceDB |
+| Mnemosyne + 0K-RAG full | **100.0%** | 91.5% | **74.3%** | Ollama + LanceDB + BGE reranker |
 | MemPalace (raw ChromaDB) | 96.6% | — | — | chromadb |
 | MemPalace (hybrid v4, no LLM) | 98.4% | — | — | chromadb + tuning |
 
@@ -118,7 +118,7 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 
 **A note on methodology:** Per-question benchmarks create a small, isolated corpus per question (~20-30 turns). All systems score high here because the search space is small. Real-world memory collections grow to hundreds of sessions. We publish both numbers so you can judge for yourself:
 
-| Scenario | Mnemosyne + 0k-rag | Corpus Size |
+| Scenario | Mnemosyne + 0K-RAG | Corpus Size |
 |---|:---:|---|
 | Per-question (benchmark) | 100.0% R@5 | ~22 turns per question |
 | Shared index (real-world) | 86.4% R@5 | 10,866 turns, single index |
@@ -157,19 +157,19 @@ For comparison: MemPalace has zero memory validation. No injection detection, no
 
 ## Optional: Enhanced Retrieval
 
-For full retrieval accuracy, add 0k-rag:
+For full retrieval accuracy, add 0K-RAG:
 
 ```
 /mnemosyne-setup-rag
 ```
 
-This guided setup installs [0k-rag](https://github.com/0K-cool/0k-rag) — a hybrid semantic retrieval engine. Requires Ollama and ~3.7GB disk space.
+This guided setup installs [0K-RAG](https://github.com/0K-cool/0k-rag) — a hybrid semantic retrieval engine. Requires Ollama and ~3.7GB disk space.
 
 | Tier | What You Get | Size |
 |---|---|---|
 | **Zero-dep** (default) | Keyword search against MEMORY.md index + file content | 0 MB |
-| **Core** (0k-rag, no reranker) | Vector (nomic-embed-text) + BM25 + RRF | ~2.5 GB |
-| **Full** (0k-rag) | Vector + BM25 + RRF + BGE reranker | ~3.7 GB |
+| **Core** (0K-RAG, no reranker) | Vector (nomic-embed-text) + BM25 + RRF | ~2.5 GB |
+| **Full** (0K-RAG) | Vector + BM25 + RRF + BGE reranker | ~3.7 GB |
 
 The plugin auto-detects which tier is available and uses the best one.
 
