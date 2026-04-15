@@ -92,7 +92,7 @@ def detect_rag() -> tuple[bool, str, str]:
     Return (available, rag_path, python_path).
 
     Priority:
-      1. MNEMOSYNE_RAG_ENABLED=true + MNEMOSYNE_RAG_PATH or ~/tools/ok-rag
+      1. MNEMOSYNE_RAG_ENABLED=true + MNEMOSYNE_RAG_PATH or ~/tools/0k-rag
       2. VEX_RAG_PATH or ~/tools/vex-rag (venv python probe)
     """
     rag_enabled_env = os.environ.get("MNEMOSYNE_RAG_ENABLED", "").lower() == "true"
@@ -101,7 +101,7 @@ def detect_rag() -> tuple[bool, str, str]:
     if rag_enabled_env:
         rag_path = os.environ.get(
             "MNEMOSYNE_RAG_PATH",
-            os.path.expanduser("~/tools/ok-rag")
+            os.path.expanduser("~/tools/0k-rag")
         )
         python_path = str(Path(rag_path) / ".venv" / "bin" / "python3")
         if Path(python_path).exists():
@@ -111,7 +111,7 @@ def detect_rag() -> tuple[bool, str, str]:
     # Probe ok-rag
     ok_rag_path = os.environ.get(
         "MNEMOSYNE_RAG_PATH",
-        os.path.expanduser("~/tools/ok-rag")
+        os.path.expanduser("~/tools/0k-rag")
     )
     ok_python = str(Path(ok_rag_path) / ".venv" / "bin" / "python3")
     if Path(ok_python).exists():

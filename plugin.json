@@ -12,7 +12,7 @@
     {
       "name": "mnemosyne-setup-rag",
       "file": "skills/setup-rag/SKILL.md",
-      "description": "Bootstrap ok-rag for enhanced semantic retrieval (optional)"
+      "description": "Bootstrap 0k-rag for enhanced semantic retrieval (optional)"
     }
   ],
   "features": {
@@ -24,7 +24,7 @@
     "agents": false
   },
   "optionalIntegrations": {
-    "ok-rag": {
+    "0k-rag": {
       "description": "Hybrid semantic retrieval (vector + BM25 + BGE reranker). Upgrades recall from ~60% to 100%.",
       "setupCommand": "/mnemosyne-setup-rag",
       "requiredMcpTool": "search_kb"

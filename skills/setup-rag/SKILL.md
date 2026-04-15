@@ -62,17 +62,17 @@ This downloads ~1.3GB. Used for generating contextual summaries during indexing.
 
 ### Step 4: Clone ok-rag
 
-**Health check:** `~/tools/ok-rag/plugin.json` exists (or `~/tools/vex-rag/plugin.json` for legacy installs).
+**Health check:** `~/tools/0k-rag/plugin.json` exists (or `~/tools/vex-rag/plugin.json` for legacy installs).
 
 ```bash
-git clone https://github.com/0K-cool/ok-rag.git ~/tools/ok-rag
+git clone https://github.com/0K-cool/0k-rag.git ~/tools/0k-rag
 ```
 
 If user already has vex-rag at `~/tools/vex-rag`, that works too — set `MNEMOSYNE_RAG_PATH=~/tools/vex-rag`.
 
 ### Step 5: Create venv and Install Dependencies
 
-**Health check:** `~/tools/ok-rag/.venv/bin/python -c "import lancedb; print('ok')"` prints "ok".
+**Health check:** `~/tools/0k-rag/.venv/bin/python -c "import lancedb; print('ok')"` prints "ok".
 
 Ask the user which tier they want:
 
@@ -81,14 +81,14 @@ Ask the user which tier they want:
 
 For **core**:
 ```bash
-cd ~/tools/ok-rag
+cd ~/tools/0k-rag
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-core.txt
 ```
 
 For **full** (recommended):
 ```bash
-cd ~/tools/ok-rag
+cd ~/tools/0k-rag
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
@@ -168,7 +168,7 @@ Replace `{OK_RAG_PATH}` and `{PROJECT_ROOT}` with actual paths.
 
 If the MCP server fails to start:
 - Check Ollama is running: `ollama list`
-- Check Python path: `~/tools/ok-rag/.venv/bin/python3 -c "import lancedb"`
+- Check Python path: `~/tools/0k-rag/.venv/bin/python3 -c "import lancedb"`
 - Check config: `cat .vex-rag.yml`
 - Check logs: `cat .claude/logs/rag.log`
 

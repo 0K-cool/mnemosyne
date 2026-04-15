@@ -27,19 +27,19 @@ That's it. Zero dependencies. Works immediately.
 
 ## Optional: Enhanced Retrieval
 
-For 100% retrieval accuracy (vs ~60% with keyword matching), add ok-rag:
+For 100% retrieval accuracy (vs ~60% with keyword matching), add 0k-rag:
 
 ```
 /mnemosyne-setup-rag
 ```
 
-This guided setup installs [ok-rag](https://github.com/0K-cool/ok-rag) — a hybrid semantic retrieval engine (vector + BM25 + BGE reranker). Requires Ollama and ~2.5GB disk space.
+This guided setup installs [0k-rag](https://github.com/0K-cool/0k-rag) — a hybrid semantic retrieval engine (vector + BM25 + BGE reranker). Requires Ollama and ~2.5GB disk space.
 
 | Configuration | Retrieval R@5 | Dependencies |
 |---|:---:|---|
 | mnemosyne alone | ~60% | Zero |
-| mnemosyne + ok-rag (core) | ~88% | ~150MB |
-| mnemosyne + ok-rag (full) | 100% | ~2.5GB |
+| mnemosyne + 0k-rag (core) | ~88% | ~150MB |
+| mnemosyne + 0k-rag (full) | 100% | ~2.5GB |
 
 Benchmarked on [LongMemEval](https://arxiv.org/abs/2410.10813).
 
