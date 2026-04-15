@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/platform-Claude_Code-orange.svg" alt="Claude Code" />
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <img src="https://img.shields.io/badge/version-1.0.0-green.svg" alt="Version 1.0.0" />
-  <img src="https://img.shields.io/badge/tests-116%20passing-brightgreen.svg" alt="116 tests passing" />
+  <img src="https://img.shields.io/badge/tests-142%20passing-brightgreen.svg" alt="142 tests passing" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
   <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
@@ -53,7 +53,7 @@ That's it. Zero dependencies. Works immediately.
 - **Auto-retrieve** — relevant memories injected into every prompt
 - **Self-improvement** — `/gotcha` captures mistakes at the source
 - **Session mining** — `/mine-session` extracts learnings from past conversations
-- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 63 test cases)
+- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 89 test cases including homoglyph and encoding bypass)
 - **Templates** — starter `MEMORY.md`, `identity.txt`, and `memory/` directory
 
 ## How It Works
@@ -141,13 +141,15 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 - Context manipulation ("forget previous", "do not follow rules")
 - Oversized writes (>50KB data stuffing)
 - Unicode normalization bypass (NFKC + zero-width character stripping)
+- Cyrillic/Greek homoglyph substitution (confusables mapping for ~30 cross-script character pairs)
+- Base64-encoded payloads (decoded and scanned if valid UTF-8 text)
+- URL-encoded payloads (percent-decoded before pattern matching)
 
 **What it doesn't catch** (known limitations, documented in tests):
-- Cyrillic homoglyph substitution (NFKC doesn't equate cross-script characters)
-- Base64/URL-encoded payloads (opaque text, not decoded)
+- HTML-entity encoding (`&#105;gnore` — would need an HTML parser)
 - Legitimate content quoting injection patterns (security research notes will trigger — security > convenience)
 
-**Test coverage:** 116 tests total. The adversarial suite alone has 63 test cases covering contract validation, every regex pattern, unicode/whitespace/encoding bypass attempts, and false-positive prevention.
+**Test coverage:** 142 tests total. The adversarial suite alone has 89 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention.
 
 For comparison: MemPalace has zero memory validation. No injection detection, no size limits, no content scanning.
 
@@ -172,7 +174,7 @@ The plugin auto-detects which tier is available and uses the best one.
 ## Test Suite
 
 ```bash
-make test          # Run all 116 tests
+make test          # Run all 142 tests
 make test-fast     # Unit + adversarial only (<1s)
 make test-integration  # Hook I/O + plugin structure
 ```
@@ -181,7 +183,7 @@ make test-integration  # Hook I/O + plugin structure
 |---|---|:---:|---|
 | `test_markdown_retriever.py` | Python unittest | 18 | Two-pass keyword retrieval algorithm |
 | `test_auto_retrieve.py` | Python unittest | 20 | RAG detection, memory dir walk, rate limiting |
-| `test_memory_validation.test.ts` | Bun test | 63 | Adversarial L3 anti-poisoning (contract + bypass + 0din threat model) |
+| `test_memory_validation.test.ts` | Bun test | 89 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding) |
 | `test_integration.py` | Python unittest | 6 | Dual-mode detection, plugin structure |
 | `test_hook_io.py` | Python unittest | 9 | Subprocess JSON contracts for all 4 hooks |
 

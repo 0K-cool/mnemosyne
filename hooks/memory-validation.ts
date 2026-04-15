@@ -129,11 +129,47 @@ export const INJECTION_PATTERNS: InjectionPattern[] = [
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Normalise Unicode to NFKC and strip zero-width characters for pattern matching. */
+/**
+ * Cyrillic → Latin confusables map.
+ * Covers the most abused homoglyphs used to bypass regex pattern matching.
+ * Source: Unicode confusables.txt (focused subset for Latin↔Cyrillic).
+ */
+const CONFUSABLES: Record<string, string> = {
+  "\u0410": "A", "\u0430": "a", // А/а → A/a
+  "\u0412": "B", "\u0432": "b", // В/в → B/b  (visual, not phonetic)
+  "\u0421": "C", "\u0441": "c", // С/с → C/c
+  "\u0415": "E", "\u0435": "e", // Е/е → E/e
+  "\u041d": "H", "\u043d": "h", // Н/н → H/h
+  "\u0406": "I", "\u0456": "i", // І/і → I/i  (Ukrainian)
+  "\u0408": "J",                 // Ј → J      (Serbian)
+  "\u041a": "K", "\u043a": "k", // К/к → K/k
+  "\u041c": "M", "\u043c": "m", // М/м → M/m  (visual)
+  "\u041e": "O", "\u043e": "o", // О/о → O/o
+  "\u0420": "P", "\u0440": "p", // Р/р → P/p
+  "\u0405": "S", "\u0455": "s", // Ѕ/ѕ → S/s  (Macedonian)
+  "\u0422": "T", "\u0442": "t", // Т/т → T/t
+  "\u0425": "X", "\u0445": "x", // Х/х → X/x
+  "\u0423": "Y", "\u0443": "y", // У/у → Y/y  (visual)
+  // Greek homoglyphs (bonus — commonly mixed with Cyrillic attacks)
+  "\u0391": "A", "\u03B1": "a", // Α/α → A/a
+  "\u0395": "E", "\u03B5": "e", // Ε/ε → E/e
+  "\u039F": "O", "\u03BF": "o", // Ο/ο → O/o
+  "\u03A1": "P", "\u03C1": "p", // Ρ/ρ → P/p
+};
+
+/** Build a single regex that matches any confusable character. */
+const CONFUSABLES_RE = new RegExp(
+  "[" + Object.keys(CONFUSABLES).join("") + "]",
+  "g"
+);
+
+/** Normalise Unicode to NFKC, strip zero-width characters, and map confusables. */
 export function normaliseText(text: string): string {
   let normalised = text.normalize("NFKC");
   // Strip zero-width and invisible characters
   normalised = normalised.replace(/[\u200b-\u200d\ufeff\u00a0]/g, " ");
+  // Map Cyrillic/Greek homoglyphs to Latin equivalents
+  normalised = normalised.replace(CONFUSABLES_RE, (ch) => CONFUSABLES[ch] ?? ch);
   return normalised;
 }
 
@@ -177,6 +213,49 @@ export function extractContent(toolName: string, input: Record<string, unknown>)
 }
 
 // ---------------------------------------------------------------------------
+// Encoding decode helpers
+// ---------------------------------------------------------------------------
+
+/** URL-decode a string (percent-encoded sequences → characters). */
+export function urlDecode(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    // Malformed percent sequences — return original
+    return text;
+  }
+}
+
+/** Minimum length for a base64 chunk to be worth decoding. */
+const MIN_BASE64_LENGTH = 20;
+
+/**
+ * Detect base64-encoded chunks, decode them, and return decoded text.
+ * Only returns chunks that decode to valid UTF-8 text (not binary).
+ */
+export function decodeBase64Chunks(text: string): string {
+  const b64Pattern = /[A-Za-z0-9+/]{20,}={0,2}/g;
+  const decoded: string[] = [];
+
+  for (const match of text.matchAll(b64Pattern)) {
+    const chunk = match[0];
+    if (chunk.length < MIN_BASE64_LENGTH) continue;
+    try {
+      const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      // Only keep chunks that look like text (not binary noise)
+      if (/^[\x20-\x7e\t\n\r]+$/.test(text)) {
+        decoded.push(text);
+      }
+    } catch {
+      // Not valid base64 or not valid UTF-8 — skip
+    }
+  }
+
+  return decoded.join(" ");
+}
+
+// ---------------------------------------------------------------------------
 // Core validation
 // ---------------------------------------------------------------------------
 
@@ -196,13 +275,41 @@ export function validateMemoryWrite(
   // Pattern scan on normalised content
   const normalised = normaliseText(content);
   for (const { pattern, description } of INJECTION_PATTERNS) {
-    // Reset stateful regex
     pattern.lastIndex = 0;
     if (pattern.test(normalised)) {
       return {
         decision: "block",
         reason: `Memory poisoning pattern detected in write to '${filePath}': ${description}`,
       };
+    }
+  }
+
+  // Scan URL-decoded content (catches %20-style obfuscation)
+  const urlDecoded = normaliseText(urlDecode(content));
+  if (urlDecoded !== normalised) {
+    for (const { pattern, description } of INJECTION_PATTERNS) {
+      pattern.lastIndex = 0;
+      if (pattern.test(urlDecoded)) {
+        return {
+          decision: "block",
+          reason: `Memory poisoning pattern detected in URL-encoded content in '${filePath}': ${description}`,
+        };
+      }
+    }
+  }
+
+  // Scan base64-decoded chunks (catches encoded payloads)
+  const b64Decoded = decodeBase64Chunks(content);
+  if (b64Decoded) {
+    const b64Normalised = normaliseText(b64Decoded);
+    for (const { pattern, description } of INJECTION_PATTERNS) {
+      pattern.lastIndex = 0;
+      if (pattern.test(b64Normalised)) {
+        return {
+          decision: "block",
+          reason: `Memory poisoning pattern detected in base64-encoded content in '${filePath}': ${description}`,
+        };
+      }
     }
   }
 
