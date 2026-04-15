@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
   <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
-  <img src="https://img.shields.io/badge/Forged_in-Puerto_Rico_🇵🇷-cc0000.svg" alt="Forged in Puerto Rico" />
+  <img src="https://img.shields.io/badge/Forged_in-Puerto_Rico_🇵🇷-c8960c.svg" alt="Forged in Puerto Rico" />
 </p>
 
 # Mnemosyne
