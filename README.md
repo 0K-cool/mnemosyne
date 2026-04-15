@@ -92,7 +92,7 @@ skills/ ──► /gotcha,
             /mine-session
 
 Retrieval: BM25 + stemming ──► OR ──► hybrid semantic search
-           (81% R@5, 0 deps)          (100% R@5, ~2.5GB)
+           (81% R@5, 0 deps)          (100% R@5, Ollama + LanceDB + BGE)
 ```
 
 ## Benchmark
@@ -154,7 +154,7 @@ For full retrieval accuracy, add 0k-rag:
 /mnemosyne-setup-rag
 ```
 
-This guided setup installs [0k-rag](https://github.com/0K-cool/0k-rag) — a hybrid semantic retrieval engine. Requires Ollama and ~2.5GB disk space.
+This guided setup installs [0k-rag](https://github.com/0K-cool/0k-rag) — a hybrid semantic retrieval engine. Requires Ollama and ~3.7GB disk space.
 
 | Tier | What You Get | Size |
 |---|---|---|
