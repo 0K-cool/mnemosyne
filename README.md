@@ -3,10 +3,11 @@
 </p>
 
 <p align="center">
-  <strong>Structured AI memory for professionals. 100% local. Zero cloud. Security-first.</strong>
+  <strong>Structured AI memory plugin for Claude Code. 100% local. Zero cloud. Security-first.</strong>
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/platform-Claude_Code-orange.svg" alt="Claude Code" />
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <img src="https://img.shields.io/badge/version-1.0.0-green.svg" alt="Version 1.0.0" />
   <img src="https://img.shields.io/badge/tests-116%20passing-brightgreen.svg" alt="116 tests passing" />
