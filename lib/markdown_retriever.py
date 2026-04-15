@@ -1,18 +1,21 @@
 """
 MarkdownRetriever — Zero-dependency MEMORY.md-aware search.
 
-Two-pass algorithm:
-  Pass 1: Parse MEMORY.md index, score entries by keyword overlap with query.
-  Pass 2: Read top candidate files, re-score by content keyword density.
+Three-pass algorithm:
+  Pass 1: Parse MEMORY.md index, score entries by BM25 with stemming.
+  Pass 2: Read top candidate files, re-score by content BM25.
+  Pass 3 (fallback): If Pass 1 finds too few candidates, scan all files directly.
 
 Returns results in the standard MemoryResult format:
   {"source": str, "content": str, "score": float, "method": "markdown"}
 
-Dependencies: Python stdlib only (re, pathlib, os). No pip packages.
+Dependencies: Python stdlib only (re, pathlib, os, math, collections). No pip packages.
 """
 
+import math
 import os
 import re
+from collections import Counter
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -47,12 +50,73 @@ _STOP_WORDS = frozenset({
     "his", "she", "her", "it", "its", "they", "them", "their",
 })
 
+# Suffix stemming rules — longest suffix first, min stem length 3
+_STEM_RULES = [
+    ("ational", "ate"), ("ization", "ize"), ("isation", "ize"),
+    ("ations", "ate"), ("ation", "ate"), ("ating", "ate"),
+    ("iveness", ""), ("fulness", ""), ("ousness", ""),
+    ("ments", ""), ("ment", ""), ("ness", ""),
+    ("ings", ""), ("ing", ""), ("tion", ""),
+    ("ible", ""), ("able", ""),
+    ("ious", ""), ("ous", ""), ("ive", ""),
+    ("ers", ""), ("est", ""), ("ely", ""),
+    ("er", ""), ("ly", ""), ("ed", ""),
+    ("es", ""), ("s", ""),
+]
+
+
+def _stem(word: str) -> str:
+    """Simple suffix stemmer. No dependencies."""
+    for suffix, replacement in _STEM_RULES:
+        if word.endswith(suffix) and len(word) - len(suffix) + len(replacement) >= 3:
+            return word[:-len(suffix)] + replacement
+    return word
+
 
 def _tokenize(text: str) -> set:
-    """Split text into a set of lowercased non-stop words."""
+    """Split text into a set of lowercased, stemmed, non-stop words."""
     words = set(_WORD_SPLIT.split(text.lower()))
     words.discard("")
-    return words - _STOP_WORDS
+    filtered = words - _STOP_WORDS
+    return {_stem(w) for w in filtered}
+
+
+def _tokenize_list(text: str) -> list:
+    """Split text into a list of lowercased, stemmed, non-stop words (preserves count)."""
+    words = _WORD_SPLIT.split(text.lower())
+    return [_stem(w) for w in words if w and w not in _STOP_WORDS]
+
+
+class _BM25:
+    """Minimal BM25 scorer. Zero dependencies."""
+
+    k1 = 1.5
+    b = 0.5  # lower b for short docs (markdown files are typically short)
+
+    def __init__(self, corpus: List[List[str]]):
+        self.N = len(corpus) if corpus else 1
+        self.avgdl = sum(len(d) for d in corpus) / self.N if corpus else 1
+        self.df: Dict[str, int] = {}
+        for doc in corpus:
+            for term in set(doc):
+                self.df[term] = self.df.get(term, 0) + 1
+
+    def idf(self, term: str) -> float:
+        df = self.df.get(term, 0)
+        return math.log((self.N - df + 0.5) / (df + 0.5) + 1)
+
+    def score(self, query_terms: set, doc_terms: list) -> float:
+        tf = Counter(doc_terms)
+        dl = len(doc_terms)
+        total = 0.0
+        for term in query_terms:
+            if term not in tf:
+                continue
+            freq = tf[term]
+            num = freq * (self.k1 + 1)
+            den = freq + self.k1 * (1 - self.b + self.b * dl / self.avgdl)
+            total += self.idf(term) * num / den
+        return total
 
 
 class MarkdownRetriever:
@@ -141,8 +205,12 @@ class MarkdownRetriever:
             best_para = best_para[:max_chars] + "..."
         return best_para
 
+    def _collect_file_entries(self, entries: List[Dict]) -> List[Dict]:
+        """Return only entries that have readable file paths."""
+        return [e for e in entries if e["file_path"] and os.path.exists(e["file_path"])]
+
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
-        """Two-pass MEMORY.md-aware search.
+        """Three-pass MEMORY.md-aware search with BM25, stemming, and content fallback.
         Returns: [{"source": str, "content": str, "score": float, "method": "markdown"}]
         """
         query_words = _tokenize(query)
@@ -153,38 +221,68 @@ class MarkdownRetriever:
         if not entries:
             return []
 
-        # Pass 1: Score index entries
-        scored = []
+        # Build BM25 index from all entry descriptions + titles
+        file_entries = self._collect_file_entries(entries)
+        corpus = []
         for entry in entries:
-            score = self._score_entry(query_words, entry)
-            if score >= 0.2:
+            doc = _tokenize_list(entry["title"] + " " + entry["description"])
+            corpus.append(doc)
+        bm25 = _BM25(corpus)
+
+        # Pass 1: Score index entries with BM25 (threshold lowered to 0.1)
+        scored = []
+        for i, entry in enumerate(entries):
+            score = bm25.score(query_words, corpus[i])
+            if score > 0.0:
                 scored.append((entry, score))
 
         scored.sort(key=lambda x: x[1], reverse=True)
-        candidates = scored[: top_k * 2]
+        candidates = scored[: top_k * 4]
 
-        # Pass 2: Read files and re-score
-        results = []
+        # Pass 3 fallback: if too few candidates, add all file entries not already included
+        if len(candidates) < top_k and file_entries:
+            candidate_paths = {e["file_path"] for e, _ in candidates if e["file_path"]}
+            for entry in file_entries:
+                if entry["file_path"] not in candidate_paths:
+                    candidates.append((entry, 0.0))
+
+        # Pass 2: Read files and re-score with content BM25
+        content_corpus = []
+        content_entries = []
         for entry, index_score in candidates:
             file_path = entry["file_path"]
-
             if file_path and os.path.exists(file_path):
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
-                content_score = self._score_content(query_words, content)
-                combined_score = 0.4 * index_score + 0.6 * content_score
-                best_paragraph = self._extract_best_paragraph(query_words, content)
-                source = os.path.basename(file_path)
-            else:
-                combined_score = index_score * 0.4
-                best_paragraph = entry["description"]
-                source = entry["title"]
+                content_corpus.append(_tokenize_list(content))
+                content_entries.append((entry, index_score, content, file_path))
 
-            if combined_score >= 0.2:
+        if content_corpus:
+            content_bm25 = _BM25(content_corpus)
+
+        results = []
+        for i, (entry, index_score, content, file_path) in enumerate(content_entries):
+            content_score = content_bm25.score(query_words, content_corpus[i])
+            # Combine: content matters more than index description
+            combined_score = 0.3 * index_score + 0.7 * content_score
+            best_paragraph = self._extract_best_paragraph(query_words, content)
+            source = os.path.basename(file_path)
+
+            if combined_score > 0.0:
                 results.append({
                     "source": source,
                     "content": best_paragraph,
                     "score": round(min(combined_score, 1.0), 4),
+                    "method": "markdown",
+                })
+
+        # Also include entries without files (bold-format, no file_path)
+        for entry, index_score in candidates:
+            if not entry["file_path"] and index_score > 0.0:
+                results.append({
+                    "source": entry["title"],
+                    "content": entry["description"],
+                    "score": round(min(index_score * 0.3, 1.0), 4),
                     "method": "markdown",
                 })
 
