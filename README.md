@@ -112,6 +112,15 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 - **Turn R@5:** Did the top-5 results include the exact correct turn? (turn-level, harder)
 - **MRR:** How high did the first correct result rank? (1.0 = first position)
 
+**A note on methodology:** Per-question benchmarks create a small, isolated corpus per question (~20-30 turns). All systems score high here because the search space is small. Real-world memory collections grow to hundreds of sessions. We publish both numbers so you can judge for yourself:
+
+| Scenario | Mnemosyne + 0k-rag | Corpus Size |
+|---|:---:|---|
+| Per-question (benchmark) | 100.0% R@5 | ~22 turns per question |
+| Shared index (real-world) | 86.4% R@5 | 10,866 turns, single index |
+
+The shared-index number reflects what actually happens when your memory has months of accumulated conversations. We believe this is the number that matters.
+
 **The zero-dep tier** (40% R@5) is keyword matching against a markdown index — no models, no embeddings, no dependencies. It works offline, on any machine, instantly. For professionals who need memory but can't install ML models on hardened systems, this is the floor.
 
 **The full tier** (100% R@5) uses hybrid vector + BM25 + reciprocal rank fusion + BGE reranking. All local, zero API calls, zero cloud.
