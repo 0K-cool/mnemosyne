@@ -146,8 +146,8 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 - URL-encoded payloads (percent-decoded before pattern matching)
 
 **What it doesn't catch** (known limitations, documented in tests):
-- HTML-entity encoding (`&#105;gnore` — would need an HTML parser)
-- Legitimate content quoting injection patterns (security research notes will trigger — security > convenience)
+- HTML-entity encoding (`&#105;gnore` — would require an HTML parser; memory files are markdown, not HTML, making this an impractical attack vector)
+- Legitimate content quoting injection patterns (security research notes that quote attack strings will trigger — this is by design: security > convenience, and the cost of a false negative outweighs the cost of a false positive)
 
 **Test coverage:** 142 tests total. The adversarial suite alone has 89 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention.
 
@@ -191,5 +191,5 @@ make test-integration  # Hook I/O + plugin structure
 
 ## License
 
-MIT
+[MIT](LICENSE)
 
