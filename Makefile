@@ -8,13 +8,13 @@ test: ## Run all tests (T-fast + T-integration)
 	python3 -m unittest discover -s tests -p "test_*.py" -v
 	@echo ""
 	@echo "=== T-fast: Bun adversarial tests ==="
-	bun test ./tests/test_memory_validation.ts
+	bun test ./tests/test_memory_validation.test.ts
 	@echo ""
 	@echo "=== All tests complete ==="
 
 test-fast: ## Unit + adversarial only (no subprocess I/O)
 	python3 -m unittest tests/test_markdown_retriever.py tests/test_auto_retrieve.py -v
-	bun test ./tests/test_memory_validation.ts
+	bun test ./tests/test_memory_validation.test.ts
 
 test-integration: ## Integration + hook I/O only
 	python3 -m unittest tests/test_integration.py tests/test_hook_io.py -v

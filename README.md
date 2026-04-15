@@ -93,8 +93,8 @@ hooks/ ──► auto-save,        0k-rag ──► vector + BM25
 skills/ ──► /gotcha,
             /mine-session
 
-Retrieval: BM25 + stemming ──► OR ──► hybrid semantic search
-           (81% R@5, 0 deps)          (100% R@5, Ollama + LanceDB + BGE)
+Retrieval: BM25 + stemming ──► OR ──► vector + BM25 + RRF ──► OR ──► + BGE reranking
+           (81% R@5, 0 deps)          (100% R@5, core)              (100% R@5, full)
 ```
 
 ## Benchmark
@@ -104,7 +104,8 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 | Configuration | Session R@5 | Turn R@5 | MRR | Dependencies |
 |---|:---:|:---:|:---:|---|
 | Mnemosyne alone | 81.1% | — | 59.7% | Zero |
-| Mnemosyne + 0k-rag (full) | **100.0%** | **91.5%** | **74.3%** | Ollama + LanceDB + BGE reranker |
+| Mnemosyne + 0k-rag core | **100.0%** | **93.0%** | 70.0% | Ollama + LanceDB |
+| Mnemosyne + 0k-rag full | **100.0%** | 91.5% | **74.3%** | Ollama + LanceDB + BGE reranker |
 | MemPalace (raw ChromaDB) | 96.6% | — | — | chromadb |
 | MemPalace (hybrid v4, no LLM) | 98.4% | — | — | chromadb + tuning |
 
@@ -126,7 +127,9 @@ The shared-index number reflects what actually happens when your memory has mont
 
 **The zero-dep tier** (81.1% R@5) uses BM25 scoring with suffix stemming against a markdown index — no models, no embeddings, no dependencies. It works offline, on any machine, instantly. For professionals who need memory but can't install ML models on hardened systems, this is a strong baseline.
 
-**The full tier** (100% R@5) uses hybrid vector + BM25 + reciprocal rank fusion + BGE reranking. All local, zero API calls, zero cloud.
+**The core tier** (100% R@5, 93% turn-level) uses vector + BM25 + reciprocal rank fusion. Hits perfect session-level recall without a reranker. Best turn-level accuracy of any configuration.
+
+**The full tier** (100% R@5, 74.3% MRR) adds BGE reranking on top. Same session-level recall as core, but better ranking of correct results (higher MRR). All local, zero API calls, zero cloud.
 
 ## Security
 
@@ -161,7 +164,8 @@ This guided setup installs [0k-rag](https://github.com/0K-cool/0k-rag) — a hyb
 | Tier | What You Get | Size |
 |---|---|---|
 | **Zero-dep** (default) | Keyword search against MEMORY.md index + file content | 0 MB |
-| **Full** (0k-rag) | Vector (nomic-embed-text) + BM25 + RRF + BGE reranker | ~3.7 GB |
+| **Core** (0k-rag, no reranker) | Vector (nomic-embed-text) + BM25 + RRF | ~2.5 GB |
+| **Full** (0k-rag) | Vector + BM25 + RRF + BGE reranker | ~3.7 GB |
 
 The plugin auto-detects which tier is available and uses the best one.
 
@@ -177,7 +181,7 @@ make test-integration  # Hook I/O + plugin structure
 |---|---|:---:|---|
 | `test_markdown_retriever.py` | Python unittest | 18 | Two-pass keyword retrieval algorithm |
 | `test_auto_retrieve.py` | Python unittest | 20 | RAG detection, memory dir walk, rate limiting |
-| `test_memory_validation.ts` | Bun test | 63 | Adversarial L3 anti-poisoning (contract + bypass + 0din threat model) |
+| `test_memory_validation.test.ts` | Bun test | 63 | Adversarial L3 anti-poisoning (contract + bypass + 0din threat model) |
 | `test_integration.py` | Python unittest | 6 | Dual-mode detection, plugin structure |
 | `test_hook_io.py` | Python unittest | 9 | Subprocess JSON contracts for all 4 hooks |
 
