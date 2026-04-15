@@ -10,7 +10,6 @@
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <img src="https://img.shields.io/badge/version-1.0.0-green.svg" alt="Version 1.0.0" />
   <img src="https://img.shields.io/badge/tests-106%20passing-brightgreen.svg" alt="106 tests passing" />
-  <img src="https://img.shields.io/badge/dependencies-zero-orange.svg" alt="Zero dependencies" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
   <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
