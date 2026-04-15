@@ -96,7 +96,7 @@ Retrieval: keyword search ──► OR ──► hybrid semantic search
 
 ## Benchmark
 
-Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-question indexing). [MemPalace](https://github.com/supermemoryai/mempalace) is included as a reference — it's the most popular Claude Code memory plugin and publishes LongMemEval results using the same methodology.
+Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-question indexing). [MemPalace](https://github.com/MemPalace/mempalace) is included as a reference — it's the most popular Claude Code memory plugin and publishes LongMemEval results using the same methodology.
 
 | Configuration | Session R@5 | Turn R@5 | MRR | Dependencies |
 |---|:---:|:---:|:---:|---|
