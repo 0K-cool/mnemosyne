@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <img src="https://img.shields.io/badge/version-1.0.0-green.svg" alt="Version 1.0.0" />
-  <img src="https://img.shields.io/badge/tests-106%20passing-brightgreen.svg" alt="106 tests passing" />
+  <img src="https://img.shields.io/badge/tests-116%20passing-brightgreen.svg" alt="116 tests passing" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
   <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
@@ -50,7 +50,7 @@ That's it. Zero dependencies. Works immediately.
 - **Auto-retrieve** — relevant memories injected into every prompt
 - **Self-improvement** — `/gotcha` captures mistakes at the source
 - **Session mining** — `/mine-session` extracts learnings from past conversations
-- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 53 test cases)
+- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 63 test cases)
 - **Templates** — starter `MEMORY.md`, `identity.txt`, and `memory/` directory
 
 ## How It Works
@@ -141,7 +141,7 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 - Base64/URL-encoded payloads (opaque text, not decoded)
 - Legitimate content quoting injection patterns (security research notes will trigger — security > convenience)
 
-**Test coverage:** 106 tests total. The adversarial suite alone has 53 test cases covering contract validation, every regex pattern, unicode/whitespace/encoding bypass attempts, and false-positive prevention.
+**Test coverage:** 116 tests total. The adversarial suite alone has 63 test cases covering contract validation, every regex pattern, unicode/whitespace/encoding bypass attempts, and false-positive prevention.
 
 For comparison: MemPalace has zero memory validation. No injection detection, no size limits, no content scanning.
 
@@ -165,7 +165,7 @@ The plugin auto-detects which tier is available and uses the best one.
 ## Test Suite
 
 ```bash
-make test          # Run all 106 tests
+make test          # Run all 116 tests
 make test-fast     # Unit + adversarial only (<1s)
 make test-integration  # Hook I/O + plugin structure
 ```
@@ -174,7 +174,7 @@ make test-integration  # Hook I/O + plugin structure
 |---|---|:---:|---|
 | `test_markdown_retriever.py` | Python unittest | 18 | Two-pass keyword retrieval algorithm |
 | `test_auto_retrieve.py` | Python unittest | 20 | RAG detection, memory dir walk, rate limiting |
-| `test_memory_validation.ts` | Bun test | 53 | Adversarial L3 anti-poisoning (contract + bypass + false-positive) |
+| `test_memory_validation.ts` | Bun test | 63 | Adversarial L3 anti-poisoning (contract + bypass + 0din threat model) |
 | `test_integration.py` | Python unittest | 6 | Dual-mode detection, plugin structure |
 | `test_hook_io.py` | Python unittest | 9 | Subprocess JSON contracts for all 4 hooks |
 
