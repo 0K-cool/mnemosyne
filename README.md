@@ -39,6 +39,8 @@ By [ZerOK Labs](https://zeroklabs.ai) — part of the 0K product suite.
 
 ## Install
 
+**Platform:** macOS (Apple Silicon optimized). Windows support planned.
+
 ```
 claude plugins install mnemosyne
 ```
