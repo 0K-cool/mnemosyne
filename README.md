@@ -96,7 +96,7 @@ Retrieval: keyword search ──► OR ──► hybrid semantic search
 
 ## Benchmark
 
-Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-question indexing).
+Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-question indexing). [MemPalace](https://github.com/supermemoryai/mempalace) is included as a reference — it's the most popular Claude Code memory plugin and publishes LongMemEval results using the same methodology.
 
 | Configuration | Session R@5 | Turn R@5 | MRR | Dependencies |
 |---|:---:|:---:|:---:|---|
@@ -105,7 +105,7 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 | MemPalace (raw ChromaDB) | 96.6% | — | — | chromadb |
 | MemPalace (hybrid v4, no LLM) | 98.4% | — | — | chromadb + tuning |
 
-**Methodology:** Per-question oracle indexing — identical to MemPalace's published methodology. Each question gets a fresh index containing only its haystack sessions. Our numbers use the same dataset, same metrics, same evaluation protocol.
+**Methodology:** Per-question oracle indexing — identical to MemPalace's published methodology. Each question gets a fresh index containing only its haystack sessions. Same dataset, same metrics, same evaluation protocol.
 
 **What the numbers mean:**
 - **Session R@5:** Did the top-5 results include the correct conversation? (session-level)
