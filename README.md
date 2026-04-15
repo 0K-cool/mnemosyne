@@ -90,8 +90,8 @@ hooks/ ──► auto-save,        0k-rag ──► vector + BM25
 skills/ ──► /gotcha,
             /mine-session
 
-Retrieval: keyword search ──► OR ──► hybrid semantic search
-           (40% R@5, 0 deps)         (100% R@5, ~2.5GB)
+Retrieval: BM25 + stemming ──► OR ──► hybrid semantic search
+           (81% R@5, 0 deps)          (100% R@5, ~2.5GB)
 ```
 
 ## Benchmark
@@ -100,7 +100,7 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 
 | Configuration | Session R@5 | Turn R@5 | MRR | Dependencies |
 |---|:---:|:---:|:---:|---|
-| Mnemosyne alone | 40.0% | — | 31.5% | Zero |
+| Mnemosyne alone | 81.1% | — | 59.7% | Zero |
 | Mnemosyne + 0k-rag (full) | **100.0%** | **91.5%** | **74.3%** | ~2.5GB |
 | MemPalace (raw ChromaDB) | 96.6% | — | — | chromadb |
 | MemPalace (hybrid v4, no LLM) | 98.4% | — | — | chromadb + tuning |
@@ -121,7 +121,7 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 
 The shared-index number reflects what actually happens when your memory has months of accumulated conversations. We believe this is the number that matters.
 
-**The zero-dep tier** (40% R@5) is keyword matching against a markdown index — no models, no embeddings, no dependencies. It works offline, on any machine, instantly. For professionals who need memory but can't install ML models on hardened systems, this is the floor.
+**The zero-dep tier** (81.1% R@5) uses BM25 scoring with suffix stemming against a markdown index — no models, no embeddings, no dependencies. It works offline, on any machine, instantly. For professionals who need memory but can't install ML models on hardened systems, this is a strong baseline.
 
 **The full tier** (100% R@5) uses hybrid vector + BM25 + reciprocal rank fusion + BGE reranking. All local, zero API calls, zero cloud.
 
