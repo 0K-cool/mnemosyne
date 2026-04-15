@@ -153,6 +153,8 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 
 For comparison: MemPalace has zero memory validation. No injection detection, no size limits, no content scanning.
 
+**Defense-in-depth:** Mnemosyne guards file system writes to memory. For broader coverage, consider [0K-Talon](https://github.com/0K-cool/0k-talon) — a security plugin that guards MCP Memory Server operations, code injection, egress, supply chain, and more. The two plugins have zero hook overlap and are tested to run together without conflicts.
+
 ## Optional: Enhanced Retrieval
 
 For full retrieval accuracy, add 0k-rag:
