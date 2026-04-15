@@ -175,5 +175,7 @@ MIT
 <p align="center">
   <img src="https://img.shields.io/badge/ZerOK%20Labs-0K-1a1a2e?style=for-the-badge&labelColor=1a1a2e&color=1a1a2e" alt="ZerOK Labs 0K" />
   <br />
+  <img src="https://img.shields.io/badge/Forged%20in-Puerto%20Rico%20%F0%9F%87%B5%F0%9F%87%B7-cc0000?style=for-the-badge&labelColor=1a1a2e&color=cc0000" alt="Forged in Puerto Rico" />
+  <br />
   <sub>Minimal noise. Maximum clarity.</sub>
 </p>
