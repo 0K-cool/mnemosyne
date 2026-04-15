@@ -101,7 +101,7 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 | Configuration | Session R@5 | Turn R@5 | MRR | Dependencies |
 |---|:---:|:---:|:---:|---|
 | Mnemosyne alone | 81.1% | — | 59.7% | Zero |
-| Mnemosyne + 0k-rag (full) | **100.0%** | **91.5%** | **74.3%** | ~2.5GB |
+| Mnemosyne + 0k-rag (full) | **100.0%** | **91.5%** | **74.3%** | Ollama + LanceDB + BGE reranker |
 | MemPalace (raw ChromaDB) | 96.6% | — | — | chromadb |
 | MemPalace (hybrid v4, no LLM) | 98.4% | — | — | chromadb + tuning |
 
@@ -158,7 +158,7 @@ This guided setup installs [0k-rag](https://github.com/0K-cool/0k-rag) — a hyb
 | Tier | What You Get | Size |
 |---|---|---|
 | **Zero-dep** (default) | Keyword search against MEMORY.md index + file content | 0 MB |
-| **Full** (0k-rag) | Vector (nomic-embed-text) + BM25 + RRF + BGE reranker | ~2.5 GB |
+| **Full** (0k-rag) | Vector (nomic-embed-text) + BM25 + RRF + BGE reranker | ~3.7 GB |
 
 The plugin auto-detects which tier is available and uses the best one.
 
