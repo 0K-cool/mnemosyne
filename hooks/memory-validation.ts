@@ -98,6 +98,31 @@ export const INJECTION_PATTERNS: InjectionPattern[] = [
     pattern: /forget\s+(?:all\s+)?previous(?:\s+context)?/i,
     description: "Context wipe: 'forget previous'",
   },
+  // --- 0din threat model patterns (authorization claim + semantic injection) ---
+  {
+    pattern: /\bauthorized\s*:\s*.{0,30}(?:access|grant|approv|admin|elevat)/i,
+    description: "Fake authorization claim: 'AUTHORIZED: ... access/granted'",
+  },
+  {
+    pattern: /(?:admin|elevated|root|unrestricted)\s+(?:access|privileges?|permissions?|mode)\s+(?:grant|confirm|approv|enabl)/i,
+    description: "Privilege escalation: fake access grant",
+  },
+  {
+    pattern: /(?:security\s+clearance|approval_policy)\s*:\s*/i,
+    description: "Fake security clearance or policy override marker",
+  },
+  {
+    pattern: /operate\s+without\s+(?:any\s+)?(?:restrict|limit|constraint|boundar)/i,
+    description: "Semantic injection: 'operate without restrictions'",
+  },
+  {
+    pattern: /(?:safety|security)\s+concerns?\s+(?:have\s+been|were)\s+(?:resolv|address|clear|remov)/i,
+    description: "Semantic injection: fake safety resolution claim",
+  },
+  {
+    pattern: /(?:user|owner|operator)\s+has\s+(?:explicitly\s+)?(?:consent|authoriz|approv|grant)/i,
+    description: "Fake consent claim: 'user has consented'",
+  },
 ];
 
 // ---------------------------------------------------------------------------
