@@ -123,5 +123,91 @@ class TestMarkdownRetriever(unittest.TestCase):
                 self.assertGreaterEqual(results[i]["score"], results[i + 1]["score"])
 
 
+class TestPathTraversalDefense(unittest.TestCase):
+    """Regression tests for H-3 from 2026-04-17 security audit.
+
+    Attack: an attacker who writes to MEMORY.md (e.g. via a memory-validation
+    bypass) can craft `[title](../../etc/hosts)` or `[x](/Users/.../.ssh/id_rsa)`
+    links. Pre-fix, parse_memory_index() returned absolute paths OUTSIDE
+    memory_dir, which downstream retrieval would then open() and inject into
+    LLM context — an arbitrary file read exfiltration channel.
+
+    Defense: _safe_resolve_memory_path rejects all escape attempts.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="mnemo_sec_"))
+        self.retriever = MarkdownRetriever(memory_dir=str(self.tmpdir))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write_memory(self, content: str):
+        (self.tmpdir / "MEMORY.md").write_text(content, encoding="utf-8")
+
+    def _file_paths(self):
+        """Return non-None file_path values from parsed entries."""
+        return [e["file_path"] for e in self.retriever.parse_memory_index()
+                if e["file_path"] is not None]
+
+    def test_rejects_parent_traversal(self):
+        """`../../foo.md` must not resolve outside memory_dir."""
+        self._write_memory("- [evil](../../etc/hosts) — traversal attempt\n")
+        self.assertEqual(self._file_paths(), [])
+
+    def test_rejects_deep_parent_traversal(self):
+        """Multi-level `../../../` traversal must be rejected."""
+        self._write_memory("- [evil](../../../../etc/passwd) — deeper\n")
+        self.assertEqual(self._file_paths(), [])
+
+    def test_rejects_absolute_path(self):
+        """`/absolute/path` must be rejected outright."""
+        self._write_memory("- [evil](/etc/hosts) — absolute\n")
+        self.assertEqual(self._file_paths(), [])
+
+    def test_rejects_home_relative_path(self):
+        """`~/.ssh/id_rsa` style home-relative paths must be rejected."""
+        self._write_memory("- [evil](~/.ssh/id_ed25519) — home-relative\n")
+        self.assertEqual(self._file_paths(), [])
+
+    def test_rejects_non_md_suffix(self):
+        """Only .md files are valid memory targets."""
+        self._write_memory("- [evil](secret.key) — wrong extension\n")
+        self.assertEqual(self._file_paths(), [])
+
+    def test_rejects_empty_path(self):
+        """Empty link target must be rejected."""
+        # Can't easily produce truly empty markdown link; test via unit call
+        self.assertIsNone(self.retriever._safe_resolve_memory_path(""))
+
+    def test_allows_legitimate_relative_md(self):
+        """Valid MEMORY.md entries (file actually under memory_dir) still work."""
+        (self.tmpdir / "kelvin-rsm-job.md").write_text("# RSM Job\nContent.\n")
+        self._write_memory("- [RSM](kelvin-rsm-job.md) — legit entry\n")
+        paths = self._file_paths()
+        self.assertEqual(len(paths), 1)
+        self.assertTrue(paths[0].endswith("kelvin-rsm-job.md"))
+
+    def test_allows_nested_legitimate_path(self):
+        """Subdirectory paths under memory_dir are allowed."""
+        sub = self.tmpdir / "topics"
+        sub.mkdir()
+        (sub / "security.md").write_text("content")
+        self._write_memory("- [Sec](topics/security.md) — nested\n")
+        paths = self._file_paths()
+        self.assertEqual(len(paths), 1)
+
+    def test_resolved_path_must_be_under_memory_dir(self):
+        """Belt-and-suspenders: even after resolve, path must be under root."""
+        # This catches symlink escapes. The pre-check already rejects '..'
+        # in the relative path, but if memory_dir itself contains a symlink
+        # to elsewhere, resolve() could land outside. The is_relative_to
+        # check catches that.
+        result = self.retriever._safe_resolve_memory_path("foo/../../../outside.md")
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

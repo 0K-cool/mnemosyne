@@ -126,6 +126,56 @@ class MarkdownRetriever:
         self.memory_dir = Path(memory_dir)
         self.memory_index_path = self.memory_dir / "MEMORY.md"
 
+    def _safe_resolve_memory_path(self, rel_path: str):
+        """Resolve MEMORY.md link target, rejecting anything that would
+        escape self.memory_dir.
+
+        Attack class: an attacker-written MEMORY.md with a link like
+        `[surf](../../../.ssh/id_ed25519)` or `[x](/etc/hosts)` would
+        previously cause parse_memory_index() to return an absolute
+        path outside memory_dir, which downstream retrieval would then
+        open() and inject into LLM context.
+
+        Defense-in-depth layers:
+          1. Reject absolute paths (`/...`) and home-relative (`~/...`)
+          2. Require `.md` suffix (memory entries are markdown only)
+          3. Reject explicit `..` traversal components before resolution
+          4. After resolution, require the result to stay under memory_dir
+             (handles symlinks pointing outside the dir)
+
+        Returns Path on success, None on any rejection.
+        """
+        from pathlib import Path
+
+        if not rel_path:
+            return None
+        # Reject absolute and home-relative
+        if rel_path.startswith(("/", "~")):
+            return None
+        # Must be .md (memory entries only)
+        if not rel_path.endswith(".md"):
+            return None
+        # Reject explicit traversal before resolving (cheap pre-check)
+        # Split on both / and \ to catch Windows-style too
+        parts = rel_path.replace("\\", "/").split("/")
+        if ".." in parts:
+            return None
+
+        try:
+            abs_path = (self.memory_dir / rel_path).resolve()
+            memory_root = self.memory_dir.resolve()
+        except (OSError, RuntimeError):
+            return None
+
+        # After resolution, verify the path is actually under memory_dir.
+        # Covers symlink attacks where a file inside memory_dir links out.
+        try:
+            abs_path.relative_to(memory_root)
+        except ValueError:
+            return None
+
+        return abs_path
+
     def parse_memory_index(self) -> List[Dict]:
         """Parse MEMORY.md into structured entries.
         Returns list of: {"title": str, "description": str, "file_path": str|None}
@@ -141,11 +191,11 @@ class MarkdownRetriever:
                 m = _LINK_PATTERN.match(line)
                 if m:
                     title, rel_path, description = m.group(1), m.group(2), m.group(3)
-                    abs_path = (self.memory_dir / rel_path).resolve()
+                    abs_path = self._safe_resolve_memory_path(rel_path)
                     entries.append({
                         "title": title,
                         "description": description.strip(),
-                        "file_path": str(abs_path) if abs_path.exists() else None,
+                        "file_path": str(abs_path) if abs_path and abs_path.exists() else None,
                     })
                     continue
 
