@@ -217,6 +217,27 @@ class TestSanitizeLabel(unittest.TestCase):
     def test_empty_returns_unknown(self):
         self.assertEqual(sanitize_label(""), "unknown")
 
+    def test_length_truncated_to_default_max(self):
+        # Default max_len = 80. Ensures attacker cannot smuggle multi-KB
+        # labels into the wrapper (DoS + readability).
+        sanitized = sanitize_label("a" * 500)
+        self.assertEqual(len(sanitized), 80)
+
+    def test_length_truncated_to_custom_max(self):
+        sanitized = sanitize_label("a" * 100, max_len=20)
+        self.assertEqual(len(sanitized), 20)
+
+    def test_quotes_stripped(self):
+        sanitized = sanitize_label('say "hello" and \'hi\'')
+        self.assertNotIn('"', sanitized)
+
+    def test_newlines_and_cr_stripped(self):
+        # Newlines in labels break the "[source (project)]: content" line
+        # format — strip them so the wrapper header stays on one line.
+        sanitized = sanitize_label("line1\nline2\rline3")
+        self.assertNotIn("\n", sanitized)
+        self.assertNotIn("\r", sanitized)
+
 
 class TestWrapUntrusted(unittest.TestCase):
     """Untrusted-content delimiter — replaces weak [Mnemosyne Auto-Retrieved] tag."""
