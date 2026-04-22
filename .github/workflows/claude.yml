@@ -1,5 +1,12 @@
 name: Claude Code
 
+# v1.1.0 HIGH-4 / F-06 hardening:
+#   - author_association allowlist on every trigger prevents random
+#     GitHub users from burning ANTHROPIC_API_KEY by typing @claude
+#     in a public issue / PR comment.
+#   - actions/checkout and claude-code-action pinned to commit SHAs;
+#     Dependabot (.github/dependabot.yml) tracks both.
+
 on:
   issue_comment:
     types: [created]
@@ -10,14 +17,18 @@ on:
   pull_request_review:
     types: [submitted]
 
+permissions:
+  contents: read
+
 jobs:
   claude:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.review.author_association)) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.issue.author_association))
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: read
@@ -26,13 +37,16 @@ jobs:
       actions: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        # v6.0.2 (Dependabot-tracked)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@v1
+        # v1 snapshot 2026-04-22 (Dependabot-tracked)
+        uses: anthropics/claude-code-action@4e5d8b13ca281a6d163cdb287d8917b216e00d6f
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           additional_permissions: |
