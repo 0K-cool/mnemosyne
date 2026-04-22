@@ -256,13 +256,14 @@ def _decode_html_entities(text: str) -> str:
 
 
 def normalise_text(text: str) -> str:
-    """Decode entities -> NFKC -> ZWS/bidi strip -> NBSP->space -> confusables.
+    """NFKC -> decode entities -> NFKC -> ZWS/bidi strip -> NBSP->space -> confusables.
 
-    ORDER MATTERS (CodeRabbit PR #4 finding): entities decode FIRST so that
-    encoded invisibles (e.g. `&#8203;` -> ZWS) and encoded fullwidth chars
-    (e.g. `&#xFF59;` -> fullwidth y) get folded by the normalisation layers
-    that follow. Decoding after would leave post-strip ZWS or un-normalised
-    fullwidth in the output.
+    ORDER MATTERS (two CodeRabbit PR #4 findings):
+      (a) Entities decode BEFORE ZWS strip + confusables so that `&#8203;`
+          -> ZWS gets stripped and `&#xFF59;` -> fullwidth y folds to ASCII.
+      (b) NFKC runs BEFORE entity decode so that fullwidth `＆#105;`
+          (U+FF06 disguised ampersand) collapses to ASCII `&#105;` and the
+          entity regex can match it.
 
     F-08 fix: zero-width chars are stripped to empty string, not replaced with
     space. Space-replacement breaks "ignore" into two tokens and defeats
@@ -270,7 +271,8 @@ def normalise_text(text: str) -> str:
     """
     if not isinstance(text, str):
         return ""
-    normalised = _decode_html_entities(text)
+    normalised = unicodedata.normalize("NFKC", text)
+    normalised = _decode_html_entities(normalised)
     normalised = unicodedata.normalize("NFKC", normalised)
     normalised = _ZERO_WIDTH_RE.sub("", normalised)
     normalised = _NBSP_RE.sub(" ", normalised)
