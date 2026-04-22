@@ -208,7 +208,7 @@ const NAMED_ENTITIES: Record<string, string> = {
 
 export function decodeHtmlEntities(text: string): string {
   return text.replace(
-    /&(?:#(?:([0-9]+)|x([0-9A-Fa-f]+))|([A-Za-z]+));/g,
+    /&(?:#(?:([0-9]+)|[xX]([0-9A-Fa-f]+))|([A-Za-z]+));/g,
     (match: string, dec?: string, hex?: string, named?: string) => {
       try {
         if (dec) {

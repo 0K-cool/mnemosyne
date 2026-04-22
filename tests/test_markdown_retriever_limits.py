@@ -31,7 +31,7 @@ class TestMaxRetrieveBytes(unittest.TestCase):
             hasattr(markdown_retriever, "MAX_RETRIEVE_BYTES"),
             "MarkdownRetriever must expose MAX_RETRIEVE_BYTES constant",
         )
-        # 256 KB chosen per spec — 5× the 50KB write cap, generous margin
+        # 256 KB chosen per spec — 5x the 50KB write cap, generous margin
         # for legitimate long-form memory files that bypassed write validation.
         self.assertEqual(markdown_retriever.MAX_RETRIEVE_BYTES, 256 * 1024)
 

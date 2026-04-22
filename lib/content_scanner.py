@@ -211,7 +211,7 @@ _NAMED_ENTITIES = {
     "apos": "'",
     "nbsp": " ",
 }
-_HTML_ENTITY_RE = re.compile(r"&(?:#(?:([0-9]+)|x([0-9A-Fa-f]+))|([A-Za-z]+));")
+_HTML_ENTITY_RE = re.compile(r"&(?:#(?:([0-9]+)|[xX]([0-9A-Fa-f]+))|([A-Za-z]+));")
 
 
 def _decode_html_entities(text: str) -> str:
