@@ -104,16 +104,23 @@ class TestScanContent(unittest.TestCase):
         blocked, _ = scan_content(None)
         self.assertFalse(blocked)
 
-    def test_non_string_input_handled(self):
-        # Fail-closed: non-string input (bytes, int) hits the TypeError path
-        # inside normalise_text; scan_content must drop the chunk, not leak
-        # raw input unscanned.
+    def test_non_string_input_blocked(self):
+        """Fail-closed: non-string input (bytes, int) must be DROPPED, not
+        pass through as safe. Previously bytes collapsed to "" inside
+        normalise_text and returned (False, None), then flowed to
+        wrap_untrusted() where re.sub() crashed on the bytes object
+        (CodeRabbit R3 finding). Now scan_content short-circuits to
+        (True, ...) and the chunk is dropped cleanly.
+        """
         blocked, reason = scan_content(b"bytes input")  # type: ignore[arg-type]
-        # scan_content coerces isinstance(text, str) inside normalise_text;
-        # the non-empty truthy bytes object skips the `if not text` branch
-        # but normalise_text handles it by returning "", so the loop sees
-        # an empty normalised string and returns (False, None).
-        self.assertFalse(blocked)
+        self.assertTrue(blocked)
+        self.assertIsNotNone(reason)
+
+    def test_int_input_blocked(self):
+        """Same fail-closed guarantee for other non-str types."""
+        blocked, reason = scan_content(42)  # type: ignore[arg-type]
+        self.assertTrue(blocked)
+        self.assertIsNotNone(reason)
 
 
 class TestNormaliseText(unittest.TestCase):

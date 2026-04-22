@@ -220,14 +220,22 @@ def normalise_text(text: str) -> str:
 def scan_content(text: Optional[str]) -> Tuple[bool, Optional[str]]:
     """Return (blocked, reason). False/None means content is safe.
 
-    Fail-closed on normalise_text() errors: if an attacker can craft input
-    that reliably throws on normalisation, fail-open would hand them a
-    scanner bypass. Returning (True, ...) on exception drops the chunk
-    instead. DoS risk is acceptable — the chunk is simply not injected,
-    the user sees no context, and the scanner log captures the reason.
+    Fail-closed on (1) non-str input, (2) normalise_text() errors.
+
+    Non-str rejection — bytes/int/etc. would otherwise short-circuit through
+    normalise_text's `if not isinstance(text, str)` to an empty normalised
+    string, returning (False, None) and letting the raw value reach
+    wrap_untrusted() where re.sub() crashes on bytes (CodeRabbit R3 finding).
+
+    Normalise exception fail-closed — if an attacker can craft input that
+    reliably throws on normalisation, fail-open would hand them a scanner
+    bypass. DoS risk is acceptable: the chunk is dropped, the user sees no
+    context, the scanner log captures the reason.
     """
-    if not text:
+    if text is None or text == "":
         return (False, None)
+    if not isinstance(text, str):
+        return (True, "Non-string retrieval content dropped")
     try:
         normalised = normalise_text(text)
     except Exception:  # noqa: BLE001 — deliberate fail-closed guard
