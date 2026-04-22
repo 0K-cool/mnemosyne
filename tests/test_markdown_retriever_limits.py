@@ -124,6 +124,61 @@ class TestMemoryIndexLineCap(unittest.TestCase):
             entries = retriever.parse_memory_index()
             self.assertEqual(len(entries), 10)
 
+    def test_junk_lines_counted_toward_cap(self):
+        """CodeRabbit PR #4 regression: the line cap must count INPUT lines,
+        not just parsed entries. A poisoned MEMORY.md full of non-matching
+        junk would otherwise bypass the DoS guard entirely."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            memory_dir = Path(tmpdir)
+            # 2× cap of garbage (no link pattern, no bold pattern) followed
+            # by 5 real entries. Cap should be hit mid-junk and the trailing
+            # entries never seen.
+            junk = "this line matches no pattern whatsoever\n" * (
+                markdown_retriever.MAX_INDEX_ENTRIES * 2
+            )
+            good = "".join(
+                f"- [Late {i}](late{i}.md) — desc\n" for i in range(5)
+            )
+            (memory_dir / "MEMORY.md").write_text(junk + good)
+
+            retriever = markdown_retriever.MarkdownRetriever(str(memory_dir))
+            entries = retriever.parse_memory_index()
+            # Junk lines consumed the entire budget — no real entries parsed.
+            # The point is that we didn't scan millions of lines: the function
+            # returned in bounded time.
+            self.assertEqual(len(entries), 0)
+
+
+class TestSearchPerFileErrorIsolation(unittest.TestCase):
+    """CodeRabbit PR #4: one unreadable file must not abort the whole search.
+
+    getsize()/open()/read()/UTF-8 decode can all race after the exists()
+    check (delete/chmod race, malformed UTF-8). search() must skip the
+    offending file and still return results from the others.
+    """
+
+    def test_invalid_utf8_file_skipped_not_fatal(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            memory_dir = Path(tmpdir)
+            # File 1: real content, UTF-8 clean — should appear in results
+            (memory_dir / "good.md").write_text(
+                "RSM Puerto Rico cybersecurity role accepted, starts May 2026."
+            )
+            # File 2: invalid UTF-8 bytes — triggers UnicodeDecodeError on read
+            (memory_dir / "bad.md").write_bytes(
+                b"RSM Puerto Rico \xff\xfe\xff invalid"
+            )
+            (memory_dir / "MEMORY.md").write_text(
+                "- [Good](good.md) — RSM Puerto Rico cybersecurity\n"
+                "- [Bad](bad.md) — RSM Puerto Rico invalid encoding\n"
+            )
+
+            retriever = markdown_retriever.MarkdownRetriever(str(memory_dir))
+            # Must not raise and must still return the good file.
+            results = retriever.search("RSM Puerto Rico", top_k=5)
+            sources = {r.get("source") for r in results}
+            self.assertIn("good.md", sources)
+
 
 if __name__ == "__main__":
     unittest.main()

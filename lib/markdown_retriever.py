@@ -203,12 +203,16 @@ class MarkdownRetriever:
             return []
 
         entries = []
+        # Line-count cap — count INPUT LINES, not parsed entries
+        # (CodeRabbit PR #4 finding). A poisoned MEMORY.md with millions
+        # of non-matching junk lines would otherwise still scan end-to-end
+        # since neither _LINK_PATTERN nor _BOLD_PATTERN would advance the
+        # entry count past the budget.
+        lines_read = 0
         with open(self.memory_index_path, "r", encoding="utf-8") as f:
             for line in f:
-                # Line cap — reject rest of file after MAX_INDEX_ENTRIES.
-                # Writing a 10M-line MEMORY.md via any non-Claude-Code path
-                # (git sync, editor, curl) would otherwise exhaust RAM.
-                if len(entries) >= MAX_INDEX_ENTRIES:
+                lines_read += 1
+                if lines_read > MAX_INDEX_ENTRIES:
                     break
                 line = line.rstrip()
 
@@ -330,13 +334,18 @@ class MarkdownRetriever:
             # Size-cap retrieval reads — see MAX_RETRIEVE_BYTES comment at top.
             # Files over the cap are skipped silently; a partial read would
             # risk false BM25 matches on truncated content.
+            #
+            # Per-file try/except (CodeRabbit PR #4 finding): getsize(), open(),
+            # read(), and UTF-8 decode can all race after the exists() check
+            # (delete/chmod race, malformed UTF-8, etc.). Skip the single bad
+            # file rather than abort the whole search().
             try:
                 if os.path.getsize(file_path) > MAX_RETRIEVE_BYTES:
                     continue
-            except OSError:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read(MAX_RETRIEVE_BYTES)
+            except (OSError, UnicodeDecodeError):
                 continue
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read(MAX_RETRIEVE_BYTES)
             content_corpus.append(_tokenize_list(content))
             content_entries.append((entry, index_score, content, file_path))
 

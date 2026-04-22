@@ -200,17 +200,63 @@ _WRAP_OPENING_RE = re.compile(
 )
 _WRAP_OPENING_REPLACEMENT = "&lt;" + _WRAP_TAG + "-escaped"
 
+# HTML entity decoder — mirrors hooks/memory-validation.ts decodeHtmlEntities.
+# Covers numeric (decimal + hex) and a small named set. Deliberately not
+# full HTML decoding — just enough to close cheap entity-encoded bypasses.
+_NAMED_ENTITIES = {
+    "lt": "<",
+    "gt": ">",
+    "amp": "&",
+    "quot": '"',
+    "apos": "'",
+    "nbsp": " ",
+}
+_HTML_ENTITY_RE = re.compile(r"&(?:#(?:([0-9]+)|x([0-9A-Fa-f]+))|([A-Za-z]+));")
+
+
+def _decode_html_entities(text: str) -> str:
+    """Decode numeric + small named HTML entities. Unknown entities pass
+    through unchanged so partial / malformed entities don't corrupt content."""
+
+    def _sub(m: re.Match) -> str:
+        dec, hex_, named = m.group(1), m.group(2), m.group(3)
+        try:
+            if dec:
+                cp = int(dec, 10)
+                if 0 <= cp <= 0x10FFFF:
+                    return chr(cp)
+            elif hex_:
+                cp = int(hex_, 16)
+                if 0 <= cp <= 0x10FFFF:
+                    return chr(cp)
+            elif named:
+                lowered = named.lower()
+                if lowered in _NAMED_ENTITIES:
+                    return _NAMED_ENTITIES[lowered]
+        except (ValueError, OverflowError):
+            pass
+        return m.group(0)
+
+    return _HTML_ENTITY_RE.sub(_sub, text)
+
 
 def normalise_text(text: str) -> str:
-    """NFKC -> ZWS/bidi strip -> NBSP->space -> confusables map.
+    """Decode entities -> NFKC -> ZWS/bidi strip -> NBSP->space -> confusables.
+
+    ORDER MATTERS (CodeRabbit PR #4 finding): entities decode FIRST so that
+    encoded invisibles (e.g. `&#8203;` -> ZWS) and encoded fullwidth chars
+    (e.g. `&#xFF59;` -> fullwidth y) get folded by the normalisation layers
+    that follow. Decoding after would leave post-strip ZWS or un-normalised
+    fullwidth in the output.
 
     F-08 fix: zero-width chars are stripped to empty string, not replaced with
-    space. The TS version's space-replacement breaks the word into two tokens
-    ("ig nore") which then fails to match /ignore\\s+previous/.
+    space. Space-replacement breaks "ignore" into two tokens and defeats
+    /ignore\\s+previous/.
     """
     if not isinstance(text, str):
         return ""
-    normalised = unicodedata.normalize("NFKC", text)
+    normalised = _decode_html_entities(text)
+    normalised = unicodedata.normalize("NFKC", normalised)
     normalised = _ZERO_WIDTH_RE.sub("", normalised)
     normalised = _NBSP_RE.sub(" ", normalised)
     normalised = _CONFUSABLES_RE.sub(lambda m: _CONFUSABLES[m.group(0)], normalised)

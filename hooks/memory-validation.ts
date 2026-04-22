@@ -237,13 +237,17 @@ export function decodeHtmlEntities(text: string): string {
 /** Normalise Unicode to NFKC, strip zero-width/bidi chars, decode HTML
  * entities, and map confusables. */
 export function normaliseText(text: string): string {
-  let normalised = text.normalize("NFKC");
+  // ORDER MATTERS (CodeRabbit PR #4 critical finding):
+  // Decode entities FIRST so encoded invisibles (`&#8203;` = ZWS) and
+  // encoded fullwidth chars (`&#xFF59;` = ｙ) get folded by the
+  // normalisation layers that follow. Decoding after would leave a
+  // post-strip ZWS or unnormalised fullwidth in the output.
+  let normalised = decodeHtmlEntities(text);
+  normalised = normalised.normalize("NFKC");
   // Strip zero-width and bidi/format characters (to empty — F-08 fix)
   normalised = normalised.replace(ZERO_WIDTH_RE, "");
   // Non-breaking space -> regular space (legitimate word separator)
   normalised = normalised.replace(NBSP_RE, " ");
-  // Decode common HTML entities so encoded payloads reach the regex
-  normalised = decodeHtmlEntities(normalised);
   // Map Cyrillic/Greek homoglyphs to Latin equivalents
   normalised = normalised.replace(CONFUSABLES_RE, (ch) => CONFUSABLES[ch] ?? ch);
   return normalised;

@@ -54,8 +54,14 @@ class TestDetectRag(unittest.TestCase):
                     }):
                 available, rag_path, python_path = auto_retrieve.detect_rag()
                 self.assertTrue(available)
-                self.assertEqual(rag_path, tmpdir)
-                self.assertEqual(python_path, str(venv_python))
+                # detect_rag now returns the RESOLVED path (CodeRabbit PR #4
+                # TOCTOU fix). On macOS /var resolves to /private/var.
+                self.assertEqual(
+                    Path(rag_path).resolve(), Path(tmpdir).resolve()
+                )
+                self.assertEqual(
+                    Path(python_path).resolve(), Path(venv_python).resolve()
+                )
 
     def test_returns_false_when_env_not_set(self):
         """RAG not detected when no env vars set and no default paths exist."""
@@ -91,7 +97,9 @@ class TestDetectRag(unittest.TestCase):
                     }):
                 available, rag_path, _ = auto_retrieve.detect_rag()
                 self.assertTrue(available)
-                self.assertEqual(rag_path, tmpdir)
+                self.assertEqual(
+                    Path(rag_path).resolve(), Path(tmpdir).resolve()
+                )
 
     def test_falls_back_to_vex_rag_path(self):
         """Falls back to VEX_RAG_PATH when ok-rag not found."""
@@ -107,7 +115,9 @@ class TestDetectRag(unittest.TestCase):
                     }):
                 available, rag_path, _ = auto_retrieve.detect_rag()
                 self.assertTrue(available)
-                self.assertEqual(rag_path, tmpdir)
+                self.assertEqual(
+                    Path(rag_path).resolve(), Path(tmpdir).resolve()
+                )
 
 
 class TestFindMemoryDir(unittest.TestCase):

@@ -19,6 +19,7 @@ import json
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
 # Add lib/ to path so content_scanner is importable
 _LIB_DIR = Path(__file__).parent.parent / "lib"
@@ -127,37 +128,68 @@ _RAG_DENIED_PREFIXES = (
 )
 
 
-def _is_rag_path_allowed(rag_path) -> bool:
-    """Return True iff rag_path resolves under an allowed prefix and does
-    not fall inside an explicitly denied prefix. Handles traversal via
-    .resolve() (follows symlinks, collapses .. components).
+def _resolve_allowed_rag_path(rag_path) -> Optional[str]:
+    """Resolve rag_path and verify it sits under an allowed prefix while
+    not in a denied prefix. Returns the fully-resolved path string on
+    success, None on any rejection.
+
+    Returning the RESOLVED path (not the raw input) and having callers use
+    that resolved value prevents both (a) tilde-expansion probe bugs where
+    `Path(rag_path) / .venv` fails on `~/tools/0k-rag` and (b) TOCTOU
+    symlink-swap attacks where validation resolves X but later filesystem
+    access follows a swapped symlink to Y. CodeRabbit PR #4 critical
+    finding — the previous boolean helper was validation-only.
     """
     if not rag_path or not isinstance(rag_path, str):
-        return False
+        return None
     try:
         resolved = Path(os.path.expanduser(rag_path)).resolve()
     except (OSError, RuntimeError):
-        return False
+        return None
 
     for denied in _RAG_DENIED_PREFIXES:
         try:
             resolved.relative_to(denied.resolve())
-            return False
+            return None
         except ValueError:
             continue
 
     for allowed in _RAG_ALLOWED_PREFIXES:
         try:
             resolved.relative_to(allowed.resolve())
-            return True
+            return str(resolved)
         except ValueError:
             continue
-    return False
+    return None
+
+
+def _is_rag_path_allowed(rag_path) -> bool:
+    """Thin compatibility wrapper — returns True iff _resolve_allowed_rag_path
+    resolves the input. Preferred new callers should use the resolver form
+    so the resolved path is bound to downstream filesystem access."""
+    return _resolve_allowed_rag_path(rag_path) is not None
 
 
 # ---------------------------------------------------------------------------
 # RAG availability probe
 # ---------------------------------------------------------------------------
+
+def _probe_rag_candidate(raw_path: str) -> Optional[tuple[str, str]]:
+    """Return (resolved_rag_path, python_path) if raw_path is allowlisted
+    AND the .venv python exists at the resolved location, else None.
+
+    All filesystem probing uses the RESOLVED path to close the TOCTOU
+    symlink-swap window between validation and venv check, and to let
+    `~/tools/0k-rag`-style paths expand correctly.
+    """
+    resolved = _resolve_allowed_rag_path(raw_path)
+    if resolved is None:
+        return None
+    python_path = str(Path(resolved) / ".venv" / "bin" / "python3")
+    if not Path(python_path).exists():
+        return None
+    return (resolved, python_path)
+
 
 def detect_rag() -> tuple[bool, str, str]:
     """
@@ -167,43 +199,42 @@ def detect_rag() -> tuple[bool, str, str]:
       1. MNEMOSYNE_RAG_ENABLED=true + MNEMOSYNE_RAG_PATH or ~/tools/0k-rag
       2. VEX_RAG_PATH or ~/tools/vex-rag (venv python probe)
 
-    All candidate paths are checked against _is_rag_path_allowed() before
-    being returned. An allowlist miss aborts the probe for that candidate
-    even if the venv exists.
+    Every candidate is validated AND resolved by _resolve_allowed_rag_path;
+    the resolved path is what gets returned and used by downstream
+    filesystem operations. Allowlist misses abort even if the venv exists.
     """
     rag_enabled_env = os.environ.get("MNEMOSYNE_RAG_ENABLED", "").lower() == "true"
 
     # Explicit enable via env
     if rag_enabled_env:
-        rag_path = os.environ.get(
+        raw = os.environ.get(
             "MNEMOSYNE_RAG_PATH",
-            os.path.expanduser("~/tools/0k-rag")
+            os.path.expanduser("~/tools/0k-rag"),
         )
-        python_path = str(Path(rag_path) / ".venv" / "bin" / "python3")
-        if _is_rag_path_allowed(rag_path) and Path(python_path).exists():
-            return True, rag_path, python_path
-        # Env var said enabled but venv missing or path not allowed — try
-        # vex-rag fallback below
+        probed = _probe_rag_candidate(raw)
+        if probed is not None:
+            return (True, probed[0], probed[1])
+        # Enabled but missing/disallowed — fall through to vex-rag below
 
     # Probe ok-rag
-    ok_rag_path = os.environ.get(
+    raw_ok = os.environ.get(
         "MNEMOSYNE_RAG_PATH",
-        os.path.expanduser("~/tools/0k-rag")
+        os.path.expanduser("~/tools/0k-rag"),
     )
-    ok_python = str(Path(ok_rag_path) / ".venv" / "bin" / "python3")
-    if _is_rag_path_allowed(ok_rag_path) and Path(ok_python).exists():
-        return True, ok_rag_path, ok_python
+    probed = _probe_rag_candidate(raw_ok)
+    if probed is not None:
+        return (True, probed[0], probed[1])
 
     # Probe vex-rag
-    vex_rag_path = os.environ.get(
+    raw_vex = os.environ.get(
         "VEX_RAG_PATH",
-        os.path.expanduser("~/tools/vex-rag")
+        os.path.expanduser("~/tools/vex-rag"),
     )
-    vex_python = str(Path(vex_rag_path) / ".venv" / "bin" / "python3")
-    if _is_rag_path_allowed(vex_rag_path) and Path(vex_python).exists():
-        return True, vex_rag_path, vex_python
+    probed = _probe_rag_candidate(raw_vex)
+    if probed is not None:
+        return (True, probed[0], probed[1])
 
-    return False, "", ""
+    return (False, "", "")
 
 
 # ---------------------------------------------------------------------------
@@ -283,16 +314,20 @@ def search_rag(query: str, rag_path: str, top_k: int = MAX_RESULTS) -> list:
 
     Returns list of formatted strings or empty list on any failure.
 
-    Defense-in-depth: even though detect_rag() already allowlist-checks
-    rag_path, we re-check here because search_rag can be called directly.
+    Defense-in-depth: even though detect_rag() already resolves + allowlists
+    rag_path, we re-resolve + re-allowlist here because search_rag may be
+    called directly with caller-supplied input (e.g. from tests or future
+    MCP tool wrappers). Using the resolved path also closes a TOCTOU
+    symlink-swap window between detect_rag and this call.
     """
-    if not _is_rag_path_allowed(rag_path):
+    resolved = _resolve_allowed_rag_path(rag_path)
+    if resolved is None:
         return []
 
     try:
         import lancedb  # top-level install, not path-dependent
 
-        embedder_cls = _load_rag_embedder(rag_path)
+        embedder_cls = _load_rag_embedder(resolved)
         if embedder_cls is None:
             return []
 
