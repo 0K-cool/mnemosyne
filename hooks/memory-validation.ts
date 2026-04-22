@@ -206,32 +206,47 @@ const NAMED_ENTITIES: Record<string, string> = {
   "nbsp": " ",
 };
 
+const MAX_ENTITY_DECODE_PASSES = 3;
+
+/** Bounded multi-pass entity decode — collapses double-encoding like
+ * `&amp;#105;` -> `&#105;` -> `i`. Stops early on no-op pass. */
 export function decodeHtmlEntities(text: string): string {
-  return text.replace(
-    /&(?:#(?:([0-9]+)|[xX]([0-9A-Fa-f]+))|([A-Za-z]+));/g,
-    (match: string, dec?: string, hex?: string, named?: string) => {
-      try {
-        if (dec) {
-          const cp = parseInt(dec, 10);
-          if (Number.isFinite(cp) && cp >= 0 && cp <= 0x10FFFF) {
-            return String.fromCodePoint(cp);
-          }
+  const ENTITY_RE = /&(?:#(?:([0-9]+)|[xX]([0-9A-Fa-f]+))|([A-Za-z]+));/g;
+  const replacer = (
+    match: string,
+    dec?: string,
+    hex?: string,
+    named?: string,
+  ): string => {
+    try {
+      if (dec) {
+        const cp = parseInt(dec, 10);
+        if (Number.isFinite(cp) && cp >= 0 && cp <= 0x10FFFF) {
+          return String.fromCodePoint(cp);
         }
-        if (hex) {
-          const cp = parseInt(hex, 16);
-          if (Number.isFinite(cp) && cp >= 0 && cp <= 0x10FFFF) {
-            return String.fromCodePoint(cp);
-          }
-        }
-        if (named && NAMED_ENTITIES[named.toLowerCase()] !== undefined) {
-          return NAMED_ENTITIES[named.toLowerCase()];
-        }
-      } catch {
-        // Fall through to original match
       }
-      return match;
-    },
-  );
+      if (hex) {
+        const cp = parseInt(hex, 16);
+        if (Number.isFinite(cp) && cp >= 0 && cp <= 0x10FFFF) {
+          return String.fromCodePoint(cp);
+        }
+      }
+      if (named && NAMED_ENTITIES[named.toLowerCase()] !== undefined) {
+        return NAMED_ENTITIES[named.toLowerCase()];
+      }
+    } catch {
+      // Fall through to original match
+    }
+    return match;
+  };
+  let current = text;
+  for (let i = 0; i < MAX_ENTITY_DECODE_PASSES; i++) {
+    ENTITY_RE.lastIndex = 0;
+    const decoded = current.replace(ENTITY_RE, replacer);
+    if (decoded === current) break;
+    current = decoded;
+  }
+  return current;
 }
 
 /** Normalise Unicode to NFKC, strip zero-width/bidi chars, decode HTML

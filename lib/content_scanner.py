@@ -214,9 +214,18 @@ _NAMED_ENTITIES = {
 _HTML_ENTITY_RE = re.compile(r"&(?:#(?:([0-9]+)|[xX]([0-9A-Fa-f]+))|([A-Za-z]+));")
 
 
+_MAX_ENTITY_DECODE_PASSES = 3
+
+
 def _decode_html_entities(text: str) -> str:
     """Decode numeric + small named HTML entities. Unknown entities pass
-    through unchanged so partial / malformed entities don't corrupt content."""
+    through unchanged so partial / malformed entities don't corrupt content.
+
+    Runs up to _MAX_ENTITY_DECODE_PASSES iterations to collapse common
+    double-encoding bypasses (e.g. `&amp;#105;` -> `&#105;` -> `i`).
+    The bound prevents pathological loops on self-referential inputs.
+    Decoding stops early once a pass makes no change.
+    """
 
     def _sub(m: re.Match) -> str:
         dec, hex_, named = m.group(1), m.group(2), m.group(3)
@@ -237,7 +246,13 @@ def _decode_html_entities(text: str) -> str:
             pass
         return m.group(0)
 
-    return _HTML_ENTITY_RE.sub(_sub, text)
+    current = text
+    for _ in range(_MAX_ENTITY_DECODE_PASSES):
+        decoded = _HTML_ENTITY_RE.sub(_sub, current)
+        if decoded == current:
+            break
+        current = decoded
+    return current
 
 
 def normalise_text(text: str) -> str:
