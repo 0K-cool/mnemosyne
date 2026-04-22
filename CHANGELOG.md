@@ -77,9 +77,6 @@ closes all CRITICAL and HIGH findings plus the majority of MEDIUMs.
 
 ### Fixed
 
-- **H-3** — path traversal in MEMORY.md link resolution
-  (`lib/markdown_retriever.py:_safe_resolve_memory_path`). Closed in
-  v1.0.1 via PR #2 and reconfirmed in v1.1.0 audit.
 - **CRIT-1 / F-01** — no read-time scan on retrieved memory. Closed.
 - **CRIT-2 / F-01+F-10** — unsanitised RAG chunks + hardcoded Kelvin
   path. Closed.
@@ -93,6 +90,13 @@ closes all CRITICAL and HIGH findings plus the majority of MEDIUMs.
 - **MED-1 / F-08** — ZWS strip bypass. Closed.
 - **MED-2 / F-09** — HTML entity encoding bypass. Closed.
 - **MED-3 / F-10** — RAG label injection. Closed via `sanitize_label`.
+
+### Reconfirmed (no regression since v1.0.1)
+
+- **H-3** — path traversal in MEMORY.md link resolution
+  (`lib/markdown_retriever.py:_safe_resolve_memory_path`). Fixed in
+  v1.0.1 (PR #2); the v1.1.0 audit bypass-tested every layer of the
+  four-part defence and found no regression.
 
 ### Deferred to v1.1.1
 
