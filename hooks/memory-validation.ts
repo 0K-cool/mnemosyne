@@ -163,11 +163,87 @@ const CONFUSABLES_RE = new RegExp(
   "g"
 );
 
-/** Normalise Unicode to NFKC, strip zero-width characters, and map confusables. */
+/**
+ * Zero-width / bidi / format characters. v1.1.0 MED-1 (F-08) — stripped to
+ * empty, NOT replaced with a space. The prior behaviour replaced these with
+ * " " which broke /ignore\s+previous/ matching when an attacker inserted a
+ * ZWS between letters (ZWS-split "ignore" passed the regex).
+ *
+ * Expanded to match the Python scanner (lib/content_scanner.py):
+ *   U+200B-U+200D  ZWS / ZWNJ / ZWJ
+ *   U+200E-U+200F  LRM / RLM
+ *   U+202A-U+202E  LRE / RLE / PDF / LRO / RLO (bidi override)
+ *   U+2060         WORD JOINER
+ *   U+2066-U+2069  LRI / RLI / FSI / PDI (isolate controls)
+ *   U+FEFF         BYTE ORDER MARK / ZWNBSP
+ */
+const ZERO_WIDTH_RE = new RegExp(
+  "[" +
+    "\\u200B-\\u200F" +
+    "\\u202A-\\u202E" +
+    "\\u2060" +
+    "\\u2066-\\u2069" +
+    "\\uFEFF" +
+    "]",
+  "g",
+);
+
+/** Non-breaking space (U+00A0) — legitimate word separator, mapped to space. */
+const NBSP_RE = / /g;
+
+/**
+ * HTML entity decoder — v1.1.0 MED-2 (F-09). Numeric (dec + hex) + small
+ * named set. Closes the &#105;gnore-previous-instructions bypass.
+ * Deliberately NOT full HTML decoding; just enough to defeat cheap
+ * escape-encoded payloads. Unknown entities pass through unchanged.
+ */
+const NAMED_ENTITIES: Record<string, string> = {
+  "lt": "<",
+  "gt": ">",
+  "amp": "&",
+  "quot": "\"",
+  "apos": "'",
+  "nbsp": " ",
+};
+
+export function decodeHtmlEntities(text: string): string {
+  return text.replace(
+    /&(?:#(?:([0-9]+)|x([0-9A-Fa-f]+))|([A-Za-z]+));/g,
+    (match: string, dec?: string, hex?: string, named?: string) => {
+      try {
+        if (dec) {
+          const cp = parseInt(dec, 10);
+          if (Number.isFinite(cp) && cp >= 0 && cp <= 0x10FFFF) {
+            return String.fromCodePoint(cp);
+          }
+        }
+        if (hex) {
+          const cp = parseInt(hex, 16);
+          if (Number.isFinite(cp) && cp >= 0 && cp <= 0x10FFFF) {
+            return String.fromCodePoint(cp);
+          }
+        }
+        if (named && NAMED_ENTITIES[named.toLowerCase()] !== undefined) {
+          return NAMED_ENTITIES[named.toLowerCase()];
+        }
+      } catch {
+        // Fall through to original match
+      }
+      return match;
+    },
+  );
+}
+
+/** Normalise Unicode to NFKC, strip zero-width/bidi chars, decode HTML
+ * entities, and map confusables. */
 export function normaliseText(text: string): string {
   let normalised = text.normalize("NFKC");
-  // Strip zero-width and invisible characters
-  normalised = normalised.replace(/[\u200b-\u200d\ufeff\u00a0]/g, " ");
+  // Strip zero-width and bidi/format characters (to empty — F-08 fix)
+  normalised = normalised.replace(ZERO_WIDTH_RE, "");
+  // Non-breaking space -> regular space (legitimate word separator)
+  normalised = normalised.replace(NBSP_RE, " ");
+  // Decode common HTML entities so encoded payloads reach the regex
+  normalised = decodeHtmlEntities(normalised);
   // Map Cyrillic/Greek homoglyphs to Latin equivalents
   normalised = normalised.replace(CONFUSABLES_RE, (ch) => CONFUSABLES[ch] ?? ch);
   return normalised;

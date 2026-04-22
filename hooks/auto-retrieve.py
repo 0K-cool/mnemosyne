@@ -105,6 +105,57 @@ def find_memory_dir() -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# RAG path allowlist — HIGH-3 / F-05 (sys.path import hijack guard)
+# ---------------------------------------------------------------------------
+
+# Allowed filesystem prefixes for a RAG install path. An attacker who can
+# set MNEMOSYNE_RAG_PATH (via .envrc in a cloned repo, malicious parent
+# process, etc.) and write to the target dir gets arbitrary code execution
+# inside the hook process on every UserPromptSubmit. Pinning to
+# ~/tools and ~/.mnemosyne matches realistic legitimate installs and
+# rules out /tmp, /var/tmp, ~/Downloads, and anything else world-writable
+# or easily planted.
+_RAG_ALLOWED_PREFIXES = (
+    Path.home() / "tools",
+    Path.home() / ".mnemosyne",
+)
+
+_RAG_DENIED_PREFIXES = (
+    Path("/tmp"),       # nosec B108 — deny list, not a tmpfile write
+    Path("/var/tmp"),   # nosec B108 — deny list, not a tmpfile write
+    Path.home() / "Downloads",
+)
+
+
+def _is_rag_path_allowed(rag_path) -> bool:
+    """Return True iff rag_path resolves under an allowed prefix and does
+    not fall inside an explicitly denied prefix. Handles traversal via
+    .resolve() (follows symlinks, collapses .. components).
+    """
+    if not rag_path or not isinstance(rag_path, str):
+        return False
+    try:
+        resolved = Path(os.path.expanduser(rag_path)).resolve()
+    except (OSError, RuntimeError):
+        return False
+
+    for denied in _RAG_DENIED_PREFIXES:
+        try:
+            resolved.relative_to(denied.resolve())
+            return False
+        except ValueError:
+            continue
+
+    for allowed in _RAG_ALLOWED_PREFIXES:
+        try:
+            resolved.relative_to(allowed.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+# ---------------------------------------------------------------------------
 # RAG availability probe
 # ---------------------------------------------------------------------------
 
@@ -115,6 +166,10 @@ def detect_rag() -> tuple[bool, str, str]:
     Priority:
       1. MNEMOSYNE_RAG_ENABLED=true + MNEMOSYNE_RAG_PATH or ~/tools/0k-rag
       2. VEX_RAG_PATH or ~/tools/vex-rag (venv python probe)
+
+    All candidate paths are checked against _is_rag_path_allowed() before
+    being returned. An allowlist miss aborts the probe for that candidate
+    even if the venv exists.
     """
     rag_enabled_env = os.environ.get("MNEMOSYNE_RAG_ENABLED", "").lower() == "true"
 
@@ -125,9 +180,10 @@ def detect_rag() -> tuple[bool, str, str]:
             os.path.expanduser("~/tools/0k-rag")
         )
         python_path = str(Path(rag_path) / ".venv" / "bin" / "python3")
-        if Path(python_path).exists():
+        if _is_rag_path_allowed(rag_path) and Path(python_path).exists():
             return True, rag_path, python_path
-        # Env var said enabled but venv missing — try vex-rag fallback below
+        # Env var said enabled but venv missing or path not allowed — try
+        # vex-rag fallback below
 
     # Probe ok-rag
     ok_rag_path = os.environ.get(
@@ -135,7 +191,7 @@ def detect_rag() -> tuple[bool, str, str]:
         os.path.expanduser("~/tools/0k-rag")
     )
     ok_python = str(Path(ok_rag_path) / ".venv" / "bin" / "python3")
-    if Path(ok_python).exists():
+    if _is_rag_path_allowed(ok_rag_path) and Path(ok_python).exists():
         return True, ok_rag_path, ok_python
 
     # Probe vex-rag
@@ -144,7 +200,7 @@ def detect_rag() -> tuple[bool, str, str]:
         os.path.expanduser("~/tools/vex-rag")
     )
     vex_python = str(Path(vex_rag_path) / ".venv" / "bin" / "python3")
-    if Path(vex_python).exists():
+    if _is_rag_path_allowed(vex_rag_path) and Path(vex_python).exists():
         return True, vex_rag_path, vex_python
 
     return False, "", ""
@@ -198,18 +254,47 @@ def _format_retrieved_chunk(source: str, project: str, content: str):
 # RAG search — vector search via lancedb + Embedder
 # ---------------------------------------------------------------------------
 
+def _load_rag_embedder(rag_path: str):
+    """Import the Embedder class from rag_path without polluting sys.path.
+
+    Uses importlib.util.spec_from_file_location so the caller-supplied
+    path influences only this load, not every subsequent import in the
+    process. Replaces the old `sys.path.insert(0, rag_path)` pattern that
+    left attacker-controllable paths in sys.path for the lifetime of the
+    hook process (HIGH-3 / F-05).
+    """
+    import importlib.util
+    embedder_file = Path(rag_path) / "rag" / "indexing" / "embedder.py"
+    if not embedder_file.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location(
+        "mnemosyne_rag_embedder", str(embedder_file)
+    )
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return getattr(module, "Embedder", None)
+
+
 def search_rag(query: str, rag_path: str, top_k: int = MAX_RESULTS) -> list:
     """
     Import lancedb and vex-rag/ok-rag modules directly, run vector search.
 
     Returns list of formatted strings or empty list on any failure.
-    """
-    try:
-        if rag_path not in sys.path:
-            sys.path.insert(0, rag_path)
 
-        import lancedb
-        from rag.indexing.embedder import Embedder
+    Defense-in-depth: even though detect_rag() already allowlist-checks
+    rag_path, we re-check here because search_rag can be called directly.
+    """
+    if not _is_rag_path_allowed(rag_path):
+        return []
+
+    try:
+        import lancedb  # top-level install, not path-dependent
+
+        embedder_cls = _load_rag_embedder(rag_path)
+        if embedder_cls is None:
+            return []
 
         db_path = _resolve_lance_path()
         db = lancedb.connect(db_path)
@@ -219,7 +304,7 @@ def search_rag(query: str, rag_path: str, top_k: int = MAX_RESULTS) -> list:
         except Exception:
             return []
 
-        embedder = Embedder(model="nomic-embed-text")
+        embedder = embedder_cls(model="nomic-embed-text")
         query_vec = embedder.embed(query)
         if query_vec is None:
             return []

@@ -20,6 +20,25 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 
+# ---------------------------------------------------------------------------
+# Resource caps — v1.1.0 HIGH-1 / HIGH-2 (DoS / context stuffing)
+# ---------------------------------------------------------------------------
+
+# Per-file read cap on retrieval side. 5x the 50 KB write cap
+# (memory-validation.ts MAX_FILE_SIZE_BYTES) — generous margin for legit
+# long-form notes that may have slipped past write validation via git sync,
+# editor saves, curl, or any non-Claude-Code write channel. Files over this
+# cap are skipped during search (not truncated — silent truncation risks
+# partial-content false matches).
+MAX_RETRIEVE_BYTES = 256 * 1024
+
+# Line cap on MEMORY.md parsing. A poisoned MEMORY.md with millions of
+# entries would build a huge BM25 corpus and exhaust RAM before any top_k
+# truncation. 5000 is well above realistic memory index sizes and below
+# the point where the scoring loop becomes an attack surface.
+MAX_INDEX_ENTRIES = 5000
+
+
 # Matches: - [Title](path.md) — description
 _LINK_PATTERN = re.compile(
     r"^-\s+\[([^\]]+)\]\(([^)]+)\)\s*[—–-]\s*(.+)$"
@@ -186,6 +205,11 @@ class MarkdownRetriever:
         entries = []
         with open(self.memory_index_path, "r", encoding="utf-8") as f:
             for line in f:
+                # Line cap — reject rest of file after MAX_INDEX_ENTRIES.
+                # Writing a 10M-line MEMORY.md via any non-Claude-Code path
+                # (git sync, editor, curl) would otherwise exhaust RAM.
+                if len(entries) >= MAX_INDEX_ENTRIES:
+                    break
                 line = line.rstrip()
 
                 m = _LINK_PATTERN.match(line)
@@ -301,11 +325,20 @@ class MarkdownRetriever:
         content_entries = []
         for entry, index_score in candidates:
             file_path = entry["file_path"]
-            if file_path and os.path.exists(file_path):
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                content_corpus.append(_tokenize_list(content))
-                content_entries.append((entry, index_score, content, file_path))
+            if not (file_path and os.path.exists(file_path)):
+                continue
+            # Size-cap retrieval reads — see MAX_RETRIEVE_BYTES comment at top.
+            # Files over the cap are skipped silently; a partial read would
+            # risk false BM25 matches on truncated content.
+            try:
+                if os.path.getsize(file_path) > MAX_RETRIEVE_BYTES:
+                    continue
+            except OSError:
+                continue
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read(MAX_RETRIEVE_BYTES)
+            content_corpus.append(_tokenize_list(content))
+            content_entries.append((entry, index_score, content, file_path))
 
         if content_corpus:
             content_bm25 = _BM25(content_corpus)
