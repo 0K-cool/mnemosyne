@@ -183,7 +183,10 @@ class TestSearchMarkdown(unittest.TestCase):
         )
         self.assertGreater(len(results), 0)
         self.assertIsInstance(results[0], str)
-        self.assertIn("[", results[0])
+        # v1.1.0: results are wrapped in untrusted-retrieved-memory delimiters
+        # (replaces the prior "[source]: content" label format).
+        self.assertIn("<untrusted-retrieved-memory", results[0])
+        self.assertIn("</untrusted-retrieved-memory>", results[0])
 
     def test_returns_empty_for_missing_directory(self):
         results = auto_retrieve.search_markdown("test query", "/nonexistent/path", top_k=3)
