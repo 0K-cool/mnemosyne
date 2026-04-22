@@ -218,13 +218,20 @@ def normalise_text(text: str) -> str:
 
 
 def scan_content(text: Optional[str]) -> Tuple[bool, Optional[str]]:
-    """Return (blocked, reason). False/None means content is safe."""
+    """Return (blocked, reason). False/None means content is safe.
+
+    Fail-closed on normalise_text() errors: if an attacker can craft input
+    that reliably throws on normalisation, fail-open would hand them a
+    scanner bypass. Returning (True, ...) on exception drops the chunk
+    instead. DoS risk is acceptable — the chunk is simply not injected,
+    the user sees no context, and the scanner log captures the reason.
+    """
     if not text:
         return (False, None)
     try:
         normalised = normalise_text(text)
-    except Exception:
-        return (False, None)
+    except Exception:  # noqa: BLE001 — deliberate fail-closed guard
+        return (True, "Content normalisation failed — dropped as precaution")
 
     for pattern, description in _INJECTION_PATTERNS:
         if pattern.search(normalised):
