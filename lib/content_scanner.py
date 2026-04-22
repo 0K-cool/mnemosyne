@@ -16,6 +16,11 @@ This scanner enforces that boundary.
 Security mapping:
   OWASP LLM 2025: LLM01 (Prompt Injection), LLM04 (Data & Model Poisoning)
   MITRE ATLAS: AML.T0051, AML.T0063 (Context Poisoning), AML.T0068 (RAG Poisoning)
+
+Source-code hygiene: all invisible / confusable Unicode characters are
+referenced via \\uXXXX escape sequences (Ruff PLE2515 / RUF001) so a
+reviewer reading this file can see what's in every pattern without relying
+on editor rendering.
 """
 
 import re
@@ -111,12 +116,13 @@ _INJECTION_PATTERNS: Tuple[Tuple[re.Pattern, str], ...] = (
 
 # ---------------------------------------------------------------------------
 # Confusables — Cyrillic + Greek → Latin
-# Port of hooks/memory-validation.ts CONFUSABLES
+# Port of hooks/memory-validation.ts CONFUSABLES. Keys expressed as \uXXXX
+# escapes (Ruff RUF001) so a reader can see the codepoint, not render glyphs.
 # ---------------------------------------------------------------------------
 
 _CONFUSABLES = {
     # Cyrillic
-    "А": "A", "а": "a",
+    "А": "A", "а": "a",  # U+0410 / U+0430
     "В": "B", "в": "b",
     "С": "C", "с": "c",
     "Е": "E", "е": "e",
@@ -140,23 +146,67 @@ _CONFUSABLES = {
 
 _CONFUSABLES_RE = re.compile("[" + "".join(_CONFUSABLES.keys()) + "]")
 
-# Zero-width characters stripped to empty (F-08 fix vs TS version that maps to space)
-_ZERO_WIDTH_RE = re.compile(r"[​-‍﻿⁠]")
+# Zero-width + bidi + format characters stripped to empty.
+# Expanded per CodeRabbit review to cover bidi overrides / isolates that can
+# invisibly reorder text:
+#   U+200B-U+200D  ZWS / ZWNJ / ZWJ
+#   U+200E-U+200F  LRM / RLM (left/right-to-left marks)
+#   U+202A-U+202E  LRE / RLE / PDF / LRO / RLO (bidi embedding + override)
+#   U+2060         WORD JOINER
+#   U+2066-U+2069  LRI / RLI / FSI / PDI (isolate controls)
+#   U+FEFF         BYTE ORDER MARK / ZWNBSP
+# F-08 fix: stripped to empty, not mapped to space (space-mapping splits
+# "ignore" into "ig nore" and defeats the \\s+ regex).
+_ZERO_WIDTH_RE = re.compile(
+    "["
+    "\\u200B-\\u200F"   # ZWS / ZWNJ / ZWJ / LRM / RLM
+    "\\u202A-\\u202E"   # LRE / RLE / PDF / LRO / RLO (bidi override)
+    "\\u2060"           # WORD JOINER
+    "\\u2066-\\u2069"   # LRI / RLI / FSI / PDI (isolate controls)
+    "\\uFEFF"           # BYTE ORDER MARK / ZWNBSP
+    "]"
+)
 
-# Non-breaking space → regular space (legitimate word separator)
-_NBSP_RE = re.compile(r" ")
+# Non-breaking space (U+00A0) → regular space (legitimate word separator).
+_NBSP_RE = re.compile(" ")
 
 # Label sanitization — strip bracket/paren/angle-bracket chars that break
 # "[source (project)]: content" formatting and XML delimiters.
 _LABEL_STRIP_RE = re.compile(r'[\[\]\(\)<>"\n\r]')
 
+# Wrapper delimiter tag name — single source of truth for the neutraliser
+# below, so wrap_untrusted() and _WRAP_BREAKOUT_RE cannot drift apart.
+_WRAP_TAG = "untrusted-retrieved-memory"
+
+# Delimiter-collision neutraliser (CRITICAL finding, CodeRabbit review of
+# PR #3). A stored chunk containing "</untrusted-retrieved-memory>" would
+# otherwise prematurely close the wrapper and place attacker-controlled
+# text outside the "untrusted" boundary. We neutralise BOTH closing and
+# opening occurrences of the tag so the wrapper cannot be prematurely
+# closed OR nested-confused by attacker-controlled content.
+#   - Closing breakout: `</tag` → `&lt;/tag-escaped`
+#   - Opening collision: `<tag ` or `<tag>` → `&lt;tag-escaped`
+# `<` becomes `&lt;` so the tag cannot be parsed. A suffix marker is
+# appended to make intentional neutralisation visible to human reviewers.
+_WRAP_CLOSING_RE = re.compile(
+    r"<\s*/\s*" + re.escape(_WRAP_TAG),
+    re.IGNORECASE,
+)
+_WRAP_CLOSING_REPLACEMENT = "&lt;/" + _WRAP_TAG + "-escaped"
+
+_WRAP_OPENING_RE = re.compile(
+    r"<\s*" + re.escape(_WRAP_TAG) + r"\b",
+    re.IGNORECASE,
+)
+_WRAP_OPENING_REPLACEMENT = "&lt;" + _WRAP_TAG + "-escaped"
+
 
 def normalise_text(text: str) -> str:
-    """NFKC → ZWS strip → NBSP→space → confusables map.
+    """NFKC -> ZWS/bidi strip -> NBSP->space -> confusables map.
 
     F-08 fix: zero-width chars are stripped to empty string, not replaced with
     space. The TS version's space-replacement breaks the word into two tokens
-    (`ig nore`) which then fails to match `/ignore\\s+previous/`.
+    ("ig nore") which then fails to match /ignore\\s+previous/.
     """
     if not isinstance(text, str):
         return ""
@@ -203,21 +253,46 @@ def sanitize_label(value: Optional[str], max_len: int = 80) -> str:
     return sanitized
 
 
+def _neutralise_wrapper_breakout(content: str) -> str:
+    """Rewrite any `</untrusted-retrieved-memory` or
+    `<untrusted-retrieved-memory` substring in content so the wrapper
+    inserted by wrap_untrusted() cannot be closed prematurely or
+    nested-confused by attacker-controlled content.
+
+    Two-stage: close first (most common breakout), then open. Running close
+    first avoids the open-pass spuriously matching the `</` in closing
+    tags (the regexes are disjoint thanks to `<\\s*/` vs `<\\s*tag\\b`,
+    but running close first makes the ordering self-evident).
+
+    This is the second layer of the delimiter-collision defence (the first
+    layer is scan_content() dropping chunks that match INJECTION_PATTERNS).
+    Even for chunks that pass scan_content, this neutraliser guarantees
+    the wrapper cannot be escaped.
+    """
+    if not content:
+        return content
+    neutralised = _WRAP_CLOSING_RE.sub(_WRAP_CLOSING_REPLACEMENT, content)
+    neutralised = _WRAP_OPENING_RE.sub(_WRAP_OPENING_REPLACEMENT, neutralised)
+    return neutralised
+
+
 def wrap_untrusted(content: str, source: str, project: str = "unknown") -> str:
     """Wrap retrieved content in an XML-like untrusted-content delimiter.
 
     Replaces the weak "[Mnemosyne Auto-Retrieved]" header with an explicit
     marker so the model treats the content as reference material, not as
-    system guidance. Source and project labels are sanitized.
+    system guidance. Source and project labels are sanitized. Content is
+    neutralised against delimiter-collision escapes before wrapping.
 
-    Note: this is advisory-level defense. A sufficiently motivated model-side
-    attack can still ignore the delimiter. Pair with scan_content() which
-    drops known-bad content before wrapping.
+    Note: this is advisory-level defence. A sufficiently motivated model-side
+    attack can still ignore the delimiter semantically. Pair with
+    scan_content() which drops known-bad content before wrapping.
     """
     safe_source = sanitize_label(source)
     safe_project = sanitize_label(project)
+    safe_content = _neutralise_wrapper_breakout(content)
     return (
-        f'<untrusted-retrieved-memory source="{safe_source}" project="{safe_project}">\n'
-        f"{content}\n"
-        f"</untrusted-retrieved-memory>"
+        f'<{_WRAP_TAG} source="{safe_source}" project="{safe_project}">\n'
+        f"{safe_content}\n"
+        f"</{_WRAP_TAG}>"
     )
