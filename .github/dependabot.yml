@@ -1,0 +1,22 @@
+version: 2
+
+# v1.1.0 HIGH-4 hardening + lesson from PAI PR #20: SHA-pinned actions
+# must have Dependabot coverage, otherwise pins silently age past their
+# current major and security updates are missed. Dependabot's
+# major-version awareness surfaces that drift automatically.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - ci
