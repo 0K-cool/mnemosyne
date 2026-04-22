@@ -169,6 +169,90 @@ class TestMnemosyneLancePath(unittest.TestCase):
             self.assertIn("lance_kb", resolved)
 
 
+class TestRagPathAllowlist(unittest.TestCase):
+    """HIGH-3 / F-05 — sys.path.insert import hijack guard.
+
+    Attacker-controlled MNEMOSYNE_RAG_PATH env var pointed at a writable
+    directory = arbitrary code execution in the hook process on every
+    UserPromptSubmit event. Fix: allowlist rag_path to ~/tools/ or
+    ~/.mnemosyne/ prefixes, reject /tmp, /var/tmp, ~/Downloads.
+    """
+
+    def test_rag_path_allowlist_function_exists(self):
+        self.assertTrue(
+            hasattr(auto_retrieve, "_is_rag_path_allowed"),
+            "auto-retrieve.py must expose _is_rag_path_allowed()",
+        )
+
+    def test_allowlisted_tools_path(self):
+        tools_path = str(Path.home() / "tools" / "0k-rag")
+        self.assertTrue(auto_retrieve._is_rag_path_allowed(tools_path))
+
+    def test_allowlisted_mnemosyne_path(self):
+        mn_path = str(Path.home() / ".mnemosyne" / "rag")
+        self.assertTrue(auto_retrieve._is_rag_path_allowed(mn_path))
+
+    def test_tmp_path_rejected(self):
+        # nosec B108 — literal /tmp is the attack the allowlist must reject
+        self.assertFalse(auto_retrieve._is_rag_path_allowed("/tmp/evil-rag"))  # nosec B108
+
+    def test_var_tmp_rejected(self):
+        # nosec B108 — literal /var/tmp is the attack the allowlist must reject
+        self.assertFalse(auto_retrieve._is_rag_path_allowed("/var/tmp/evil"))  # nosec B108
+
+    def test_downloads_rejected(self):
+        downloads = str(Path.home() / "Downloads" / "evil-rag")
+        self.assertFalse(auto_retrieve._is_rag_path_allowed(downloads))
+
+    def test_traversal_rejected(self):
+        # Post-resolve check must catch .. that escapes the allowlist
+        bad_path = os.path.join(
+            str(Path.home() / "tools"), "..", "..", "tmp"
+        )
+        self.assertFalse(auto_retrieve._is_rag_path_allowed(bad_path))
+
+    def test_empty_path_rejected(self):
+        self.assertFalse(auto_retrieve._is_rag_path_allowed(""))
+
+    def test_none_path_rejected(self):
+        self.assertFalse(auto_retrieve._is_rag_path_allowed(None))
+
+    def test_detect_rag_rejects_poisoned_env(self):
+        """End-to-end: MNEMOSYNE_RAG_PATH pointing outside the allowlist
+        must yield detect_rag() = (False, "", "")."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a fake venv inside tmpdir (would normally pass the venv probe)
+            venv_python = Path(tmpdir) / ".venv" / "bin" / "python3"
+            venv_python.parent.mkdir(parents=True)
+            venv_python.touch()
+            with patch.dict(os.environ, {
+                "MNEMOSYNE_RAG_ENABLED": "true",
+                "MNEMOSYNE_RAG_PATH": tmpdir,  # /tmp/... — not allowlisted
+                "VEX_RAG_PATH": "/nonexistent",
+            }):
+                available, _, _ = auto_retrieve.detect_rag()
+                self.assertFalse(
+                    available,
+                    "detect_rag must refuse paths outside the allowlist, "
+                    "regardless of whether the venv exists",
+                )
+
+    def test_search_rag_no_global_sys_path_pollution(self):
+        """search_rag must not permanently extend sys.path with a
+        caller-supplied rag_path (importlib.util replaces sys.path.insert)."""
+        import sys as _sys
+        before = list(_sys.path)
+        allowlisted = str(Path.home() / "tools" / "nonexistent-for-test")
+        auto_retrieve.search_rag("any query", allowlisted, top_k=1)
+        after = _sys.path
+        self.assertNotIn(
+            allowlisted,
+            after,
+            "search_rag leaked caller-supplied path into global sys.path",
+        )
+        self.assertEqual(len(before), len(after))
+
+
 class TestSearchRagSanitization(unittest.TestCase):
     """CRIT-2 — RAG results must flow through scanner + label sanitizer."""
 

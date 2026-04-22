@@ -200,17 +200,80 @@ _WRAP_OPENING_RE = re.compile(
 )
 _WRAP_OPENING_REPLACEMENT = "&lt;" + _WRAP_TAG + "-escaped"
 
+# HTML entity decoder — mirrors hooks/memory-validation.ts decodeHtmlEntities.
+# Covers numeric (decimal + hex) and a small named set. Deliberately not
+# full HTML decoding — just enough to close cheap entity-encoded bypasses.
+_NAMED_ENTITIES = {
+    "lt": "<",
+    "gt": ">",
+    "amp": "&",
+    "quot": '"',
+    "apos": "'",
+    "nbsp": " ",
+}
+_HTML_ENTITY_RE = re.compile(r"&(?:#(?:([0-9]+)|[xX]([0-9A-Fa-f]+))|([A-Za-z]+));")
+
+
+_MAX_ENTITY_DECODE_PASSES = 3
+
+
+def _decode_html_entities(text: str) -> str:
+    """Decode numeric + small named HTML entities. Unknown entities pass
+    through unchanged so partial / malformed entities don't corrupt content.
+
+    Runs up to _MAX_ENTITY_DECODE_PASSES iterations to collapse common
+    double-encoding bypasses (e.g. `&amp;#105;` -> `&#105;` -> `i`).
+    The bound prevents pathological loops on self-referential inputs.
+    Decoding stops early once a pass makes no change.
+    """
+
+    def _sub(m: re.Match) -> str:
+        dec, hex_, named = m.group(1), m.group(2), m.group(3)
+        try:
+            if dec:
+                cp = int(dec, 10)
+                if 0 <= cp <= 0x10FFFF:
+                    return chr(cp)
+            elif hex_:
+                cp = int(hex_, 16)
+                if 0 <= cp <= 0x10FFFF:
+                    return chr(cp)
+            elif named:
+                lowered = named.lower()
+                if lowered in _NAMED_ENTITIES:
+                    return _NAMED_ENTITIES[lowered]
+        except (ValueError, OverflowError):
+            pass
+        return m.group(0)
+
+    current = text
+    for _ in range(_MAX_ENTITY_DECODE_PASSES):
+        decoded = _HTML_ENTITY_RE.sub(_sub, current)
+        if decoded == current:
+            break
+        current = decoded
+    return current
+
 
 def normalise_text(text: str) -> str:
-    """NFKC -> ZWS/bidi strip -> NBSP->space -> confusables map.
+    """NFKC -> decode entities -> NFKC -> ZWS/bidi strip -> NBSP->space -> confusables.
+
+    ORDER MATTERS (two CodeRabbit PR #4 findings):
+      (a) Entities decode BEFORE ZWS strip + confusables so that `&#8203;`
+          -> ZWS gets stripped and `&#xFF59;` -> fullwidth y folds to ASCII.
+      (b) NFKC runs BEFORE entity decode so that fullwidth `＆#105;`
+          (U+FF06 disguised ampersand) collapses to ASCII `&#105;` and the
+          entity regex can match it.
 
     F-08 fix: zero-width chars are stripped to empty string, not replaced with
-    space. The TS version's space-replacement breaks the word into two tokens
-    ("ig nore") which then fails to match /ignore\\s+previous/.
+    space. Space-replacement breaks "ignore" into two tokens and defeats
+    /ignore\\s+previous/.
     """
     if not isinstance(text, str):
         return ""
     normalised = unicodedata.normalize("NFKC", text)
+    normalised = _decode_html_entities(normalised)
+    normalised = unicodedata.normalize("NFKC", normalised)
     normalised = _ZERO_WIDTH_RE.sub("", normalised)
     normalised = _NBSP_RE.sub(" ", normalised)
     normalised = _CONFUSABLES_RE.sub(lambda m: _CONFUSABLES[m.group(0)], normalised)

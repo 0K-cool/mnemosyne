@@ -21,7 +21,25 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 class TestDetectRag(unittest.TestCase):
-    """Test RAG availability detection logic."""
+    """Test RAG availability detection logic.
+
+    v1.1.0 HIGH-3 tightening: detect_rag now applies _is_rag_path_allowed()
+    which only accepts paths under ~/tools or ~/.mnemosyne. Tests that use
+    tempfile.TemporaryDirectory() (which lands in /var/folders on macOS)
+    patch the allowlist to also include the tempdir prefix, so legitimate
+    detection logic still gets exercised in CI environments.
+    """
+
+    def _patch_allowlist(self, extra_prefix: Path):
+        """Add extra_prefix to _RAG_ALLOWED_PREFIXES for the duration of
+        a single test. Returns the patcher so the test can call .start()/
+        .stop() — preferred pattern for compatibility with unittest.
+        """
+        return patch.object(
+            auto_retrieve,
+            "_RAG_ALLOWED_PREFIXES",
+            auto_retrieve._RAG_ALLOWED_PREFIXES + (extra_prefix,),
+        )
 
     def test_returns_true_when_env_enabled_and_venv_exists(self):
         """RAG detected when MNEMOSYNE_RAG_ENABLED=true and .venv exists."""
@@ -29,14 +47,21 @@ class TestDetectRag(unittest.TestCase):
             venv_python = Path(tmpdir) / ".venv" / "bin" / "python3"
             venv_python.parent.mkdir(parents=True)
             venv_python.touch()
-            with patch.dict(os.environ, {
-                "MNEMOSYNE_RAG_ENABLED": "true",
-                "MNEMOSYNE_RAG_PATH": tmpdir,
-            }):
+            with self._patch_allowlist(Path(tmpdir).parent), \
+                    patch.dict(os.environ, {
+                        "MNEMOSYNE_RAG_ENABLED": "true",
+                        "MNEMOSYNE_RAG_PATH": tmpdir,
+                    }):
                 available, rag_path, python_path = auto_retrieve.detect_rag()
                 self.assertTrue(available)
-                self.assertEqual(rag_path, tmpdir)
-                self.assertEqual(python_path, str(venv_python))
+                # detect_rag now returns the RESOLVED path (CodeRabbit PR #4
+                # TOCTOU fix). On macOS /var resolves to /private/var.
+                self.assertEqual(
+                    Path(rag_path).resolve(), Path(tmpdir).resolve()
+                )
+                self.assertEqual(
+                    Path(python_path).resolve(), Path(venv_python).resolve()
+                )
 
     def test_returns_false_when_env_not_set(self):
         """RAG not detected when no env vars set and no default paths exist."""
@@ -64,14 +89,17 @@ class TestDetectRag(unittest.TestCase):
             venv_python = Path(tmpdir) / ".venv" / "bin" / "python3"
             venv_python.parent.mkdir(parents=True)
             venv_python.touch()
-            with patch.dict(os.environ, {
-                "MNEMOSYNE_RAG_ENABLED": "",
-                "MNEMOSYNE_RAG_PATH": tmpdir,
-                "VEX_RAG_PATH": "/nonexistent",
-            }):
+            with self._patch_allowlist(Path(tmpdir).parent), \
+                    patch.dict(os.environ, {
+                        "MNEMOSYNE_RAG_ENABLED": "",
+                        "MNEMOSYNE_RAG_PATH": tmpdir,
+                        "VEX_RAG_PATH": "/nonexistent",
+                    }):
                 available, rag_path, _ = auto_retrieve.detect_rag()
                 self.assertTrue(available)
-                self.assertEqual(rag_path, tmpdir)
+                self.assertEqual(
+                    Path(rag_path).resolve(), Path(tmpdir).resolve()
+                )
 
     def test_falls_back_to_vex_rag_path(self):
         """Falls back to VEX_RAG_PATH when ok-rag not found."""
@@ -79,14 +107,17 @@ class TestDetectRag(unittest.TestCase):
             venv_python = Path(tmpdir) / ".venv" / "bin" / "python3"
             venv_python.parent.mkdir(parents=True)
             venv_python.touch()
-            with patch.dict(os.environ, {
-                "MNEMOSYNE_RAG_ENABLED": "",
-                "MNEMOSYNE_RAG_PATH": "/nonexistent/ok-rag",
-                "VEX_RAG_PATH": tmpdir,
-            }):
+            with self._patch_allowlist(Path(tmpdir).parent), \
+                    patch.dict(os.environ, {
+                        "MNEMOSYNE_RAG_ENABLED": "",
+                        "MNEMOSYNE_RAG_PATH": "/nonexistent/ok-rag",
+                        "VEX_RAG_PATH": tmpdir,
+                    }):
                 available, rag_path, _ = auto_retrieve.detect_rag()
                 self.assertTrue(available)
-                self.assertEqual(rag_path, tmpdir)
+                self.assertEqual(
+                    Path(rag_path).resolve(), Path(tmpdir).resolve()
+                )
 
 
 class TestFindMemoryDir(unittest.TestCase):
