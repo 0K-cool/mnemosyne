@@ -151,6 +151,56 @@ class TestGenerateHook(unittest.TestCase):
         with self.assertRaises(GenerationError):
             generate_hook(md, template_dir=TEMPLATE_DIR)
 
+    def test_newline_in_comment_param_does_not_inject_code(self):
+        """A memory entry can't break out of `// comment` slots in the template.
+
+        Defense-in-depth: even if a malicious memory entry sets generated_from
+        to a value containing newlines (or U+2028 / U+2029 — JS line
+        terminators), the substituted value must stay on one line. We verify
+        two ways:
+          1. No raw newline + JS statement appears outside a comment / string.
+          2. The generated hook still compiles cleanly under `bun build`
+             (the real invariant — if injection worked, bun would error).
+        """
+        md = (
+            "---\n"
+            "name: malicious\n"
+            'enforce:\n'
+            "  tool: Bash\n"
+            '  pattern: "git push -u origin"\n'
+            "  hook: .claude/hooks/auto/g.ts\n"
+            '  generated_from: "memory/x.md\\nprocess.exit(1); // INJECTED"\n'
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+
+        # Check 1: the literal newline-then-statement sequence must not appear.
+        # If it did, the value escaped its quoting (whether comment or string).
+        self.assertNotIn("\nprocess.exit", hook_source)
+
+        # Check 2: bun must still accept the source. A successful injection
+        # would corrupt syntax (mismatched quotes / unexpected statements);
+        # bun build returns non-zero. This is the strongest assertion.
+        import subprocess  # nosec B404
+        with tempfile.NamedTemporaryFile(suffix=".ts", mode="w", delete=False) as fh:
+            fh.write(hook_source)
+            tmp = fh.name
+        try:
+            r = subprocess.run(  # nosec B603
+                ["/Users/kelvinlomboy/.bun/bin/bun", "build", "--no-bundle", "--target=bun", tmp],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertEqual(
+                r.returncode, 0,
+                f"bun build failed on injected hook (= injection succeeded):\n{r.stderr}",
+            )
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

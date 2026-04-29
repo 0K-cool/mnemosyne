@@ -112,6 +112,17 @@ def pick_template(tool: str, pattern: str, template_dir: Path) -> Path:
 
 _PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_][A-Z0-9_]*)\}\}")
 
+# Characters that can break out of a `// line comment` in TS/JS source.
+# Replaced with a single space so the value still appears (truncated) in
+# the generated header but cannot inject code on a new line.
+_COMMENT_BREAK_RE = re.compile(r"[\r\n  ]+")
+
+
+def _safe_for_comment(value: object) -> str:
+    """Neutralise comment-breaking characters so a malicious memory entry
+    cannot inject TypeScript via a `//` line comment in the template."""
+    return _COMMENT_BREAK_RE.sub(" ", str(value))
+
 
 def _render(template_text: str, params: dict[str, str]) -> str:
     """Substitute {{PARAM}} placeholders. Raise on any unfilled placeholders.
@@ -155,19 +166,26 @@ def generate_hook(md: str, template_dir: Path) -> str:
 
     # Build the substitution dict. Use json.dumps for the regex pattern
     # so any quotes / backslashes survive the round-trip into TypeScript
-    # source unscathed.
+    # source unscathed. For values that land inside `//` line comments
+    # in the template, neutralise newlines / CR / line-separator chars so
+    # a malicious memory entry cannot break out of the comment and inject
+    # code into the generated hook.
     params = {
         "TOOL": enforce["tool"],
         "PATTERN_JSON": json.dumps(enforce["pattern"]),
         "REPO_FILTER_JSON": json.dumps(enforce.get("repo_filter", "")),
         "FRESHNESS_SECS": str(enforce["freshness_secs"]),
-        "GENERATED_FROM": enforce["generated_from"],
-        "HOOK_PATH": enforce["hook"],
-        "AUDIT_LOG_PATH": enforce["audit_log"],
-        "GENERATOR_VERSION": enforce.get("generator_version", GENERATOR_VERSION),
-        "GENERATED_AT": enforce.get(
-            "generated_at",
-            datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "GENERATED_FROM": _safe_for_comment(enforce["generated_from"]),
+        "HOOK_PATH": _safe_for_comment(enforce["hook"]),
+        "AUDIT_LOG_PATH": _safe_for_comment(enforce["audit_log"]),
+        "GENERATOR_VERSION": _safe_for_comment(
+            enforce.get("generator_version", GENERATOR_VERSION)
+        ),
+        "GENERATED_AT": _safe_for_comment(
+            enforce.get(
+                "generated_at",
+                datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            )
         ),
     }
 
