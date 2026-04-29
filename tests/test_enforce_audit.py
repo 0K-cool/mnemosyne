@@ -13,7 +13,7 @@ Behavior contract:
   - Per rule: count events by type, capture first/last ts
   - --threshold N flags rules with `blocks >= N`
   - --json emits machine-readable output to stdout
-  - Malformed JSONL lines are skipped with a warning, not fatal
+  - Malformed JSONL lines are skipped silently, not fatal
 """
 
 import io
@@ -135,7 +135,7 @@ class TestCli(unittest.TestCase):
                 fh.write(json.dumps(d) + "\n")
 
     def test_empty_logs_dir_exits_0(self):
-        rc, out, err = _run("--logs-dir", str(self.tmp))
+        rc, _out, err = _run("--logs-dir", str(self.tmp))
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_table_output_lists_rules(self):
@@ -179,6 +179,14 @@ class TestCli(unittest.TestCase):
             any(kw in combined.lower() for kw in ("escalate", "threshold", "candidate")),
             f"no escalation marker in output:\n{combined}",
         )
+
+    def test_threshold_negative_rejected(self):
+        """argparse parse-time validation: --threshold must be >= 0."""
+        # Can't use _run because argparse calls sys.exit(2) on parse failure;
+        # capture stderr to verify the error message.
+        rc, _out, err = _run("--logs-dir", str(self.tmp), "--threshold", "-1")
+        self.assertEqual(rc, 2, "expected argparse exit code 2 for invalid arg")
+        self.assertIn("threshold", err.lower())
 
     def test_threshold_in_json_output(self):
         self._write_log("frequent.audit.jsonl", [

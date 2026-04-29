@@ -142,7 +142,7 @@ PYTHONPATH=lib python -m enforce.audit \
 ```
 
 Default human-readable output:
-```
+```text
 rule             blocks  allows  skips  total  first_seen            last_seen
 ---------------  ------  ------  -----  -----  --------------------  --------------------
 cr-prepush       2       1       1      4      2026-04-29T18:30:00Z  2026-04-29T18:35:00Z
@@ -150,7 +150,7 @@ destructive-cmd  1       0       0      1      2026-04-29T19:00:00Z  2026-04-29T
 ```
 
 With `--threshold 2`:
-```
+```text
 ⚠️  1 rule(s) crossed threshold 2 (escalation candidates):
   - cr-prepush
 Consider escalating to system prompt (--append-system-prompt) or CLAUDE.md,

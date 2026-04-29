@@ -60,8 +60,15 @@ def aggregate_audit_logs(logs_dir: Path) -> list[dict[str, Any]]:
     if not logs_dir.exists() or not logs_dir.is_dir():
         return []
 
+    # Guard against unreadable directories (permissions, network mounts, etc.)
+    try:
+        children = sorted(logs_dir.iterdir())
+    except (OSError, PermissionError) as exc:
+        _log.warning("could not list %s: %s", logs_dir, exc)
+        return []
+
     rules: list[dict[str, Any]] = []
-    for path in sorted(logs_dir.iterdir()):
+    for path in children:
         if not path.is_file() or not path.name.endswith(AUDIT_SUFFIX):
             continue
         rule_name = path.name[: -len(AUDIT_SUFFIX)]
@@ -124,7 +131,7 @@ def _format_table(rules: list[dict[str, Any]], threshold: Optional[int]) -> str:
     ]
 
     def fmt_row(values: list[str]) -> str:
-        return "  ".join(v.ljust(w) for v, w in zip(values, widths))
+        return "  ".join(v.ljust(w) for v, w in zip(values, widths, strict=True))
 
     lines = [fmt_row(list(headers))]
     lines.append(fmt_row(["-" * w for w in widths]))
@@ -174,9 +181,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path(DEFAULT_LOGS_DIR),
         help=f"Directory of *.audit.jsonl files (default: {DEFAULT_LOGS_DIR})",
     )
+    def _non_negative_int(s: str) -> int:
+        n = int(s)
+        if n < 0:
+            raise argparse.ArgumentTypeError(f"--threshold must be ≥ 0, got {n}")
+        return n
+
     p.add_argument(
         "--threshold",
-        type=int,
+        type=_non_negative_int,
         default=None,
         help="Flag rules where blocks >= N as escalation candidates",
     )
