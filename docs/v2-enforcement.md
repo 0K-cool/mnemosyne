@@ -291,8 +291,12 @@ hashes / build artifacts.
 | `npm_[A-Za-z0-9]{36}` | npm publish tokens |
 | `glpat-[A-Za-z0-9_-]{20,}` | GitLab PATs |
 
-Operators extend or override the default list via the schema's
-`credential_patterns` field.
+Operators **replace** the default list via the schema's
+`credential_patterns` field. Setting it does NOT merge with the
+defaults — it fully takes over, which is the behaviour
+`tests/test_enforce_generator.py::test_credential_leak_template_renders_custom_patterns`
+pins. If you need a few extra patterns on top of the curated set,
+copy the defaults into your memory entry and append your additions.
 
 ### New schema field
 
@@ -307,7 +311,9 @@ enforce:
 Each entry must be a non-empty string AND must compile as a regex.
 When the field is omitted, the generator substitutes the curated
 default at substitution time — schema stays template-agnostic, same
-shape as `protected_branches` from Phase 4.1.
+shape as `protected_branches` from Phase 4.1. Setting the field
+replaces the defaults entirely; merge semantics are deliberately
+not provided so an operator's intent is unambiguous.
 
 **Portable-subset constraint**: each pattern is compiled twice —
 once by the schema validator under Python `re` (build time), and

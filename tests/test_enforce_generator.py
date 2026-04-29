@@ -613,6 +613,21 @@ class TestPhase42CredentialLeakGuard(unittest.TestCase):
         self.assertIn("event: 'block', reason: 'invalid hook input'", hook_source)
         self.assertIn("process.exit(2)", hook_source)
 
+    def test_credential_leak_template_fails_closed_on_shape_drift(self):
+        """PR #17 R2 — JSON parses but payload shape is wrong:
+        - missing file_path → block (was: silently 'path out of scope')
+        - missing content   → block (was: silently 'no content')
+        Both protocol-drift cases must fail closed for credential-leak;
+        otherwise an attacker controlling the hook payload could bypass
+        scanning by simply omitting fields."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("missing file_path", hook_source)
+        self.assertIn("missing write content", hook_source)
+        # Empty content is still a legitimate "nothing to scan" case —
+        # allow with audit, NOT fail closed.
+        self.assertIn("event: 'allow', reason: 'no content'", hook_source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
