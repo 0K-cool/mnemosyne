@@ -21,6 +21,11 @@ from .cli import main as cli_main
 from .generator import GenerationError, generate_hook, parse_memory_entry, pick_template
 from .schema import EnforceValidationError, validate_enforce_block
 
+# Note: enforce.audit is intentionally not re-exported from the package
+# top-level. Consumers invoke it via `python -m enforce.audit` or
+# `from enforce.audit import …`. Importing it here triggers a benign
+# but noisy RuntimeWarning under `python -m enforce.audit`.
+
 __all__ = [
     "EnforceValidationError",
     "GenerationError",
