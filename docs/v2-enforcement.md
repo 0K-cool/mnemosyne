@@ -129,6 +129,36 @@ When `inject_on_match: true`, the generated hook calls `console.log(JSON.stringi
 
 Why this matters: the recurring failure mode is "agent read the rule 5 hours ago and forgot." Re-injection at action time eliminates that gap. Even when the hook decides to allow (cache fresh, conditions satisfied), the agent gets a fresh reminder of why the rule exists.
 
+## Phase 3 — violation telemetry / reinforcement loop (shipped)
+
+Generated hooks already write JSONL audit entries (allow / block / skip-override) to `.claude/logs/<rule>.audit.jsonl`. Phase 3 adds the **aggregation + reporting layer** that turns those entries into a measurable feedback signal.
+
+```bash
+PYTHONPATH=lib python -m enforce.audit \
+  [--logs-dir DIR]      # default: .claude/logs
+  [--threshold N]       # flag rules with blocks >= N as escalation candidates
+  [--json]              # machine-readable output
+  [-v]                  # verbose
+```
+
+Default human-readable output:
+```text
+rule             blocks  allows  skips  total  first_seen            last_seen
+---------------  ------  ------  -----  -----  --------------------  --------------------
+cr-prepush       2       1       1      4      2026-04-29T18:30:00Z  2026-04-29T18:35:00Z
+destructive-cmd  1       0       0      1      2026-04-29T19:00:00Z  2026-04-29T19:00:00Z
+```
+
+With `--threshold 2`:
+```text
+⚠️  1 rule(s) crossed threshold 2 (escalation candidates):
+  - cr-prepush
+Consider escalating to system prompt (--append-system-prompt) or CLAUDE.md,
+or auto-generating an additional tool hook.
+```
+
+The escalation suggestion is informational — Phase 3 reports; the operator decides what to do (escalate to CLAUDE.md? add an `--append-system-prompt` invocation? auto-generate another hook?). Future phases may automate the recommended action.
+
 ## Phase 4 — pattern library start (shipped: block-on-match primitive)
 
 Phase 4 starts the pattern library — a small collection of hook templates beyond the original `cr-prepush-guard.ts.template`. The first new shape is a generic block-on-match primitive plus an explicit-template-selection schema field so operators can opt into specific templates without relying on auto-dispatch.
