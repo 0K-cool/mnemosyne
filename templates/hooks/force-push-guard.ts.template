@@ -92,6 +92,19 @@ function isForcePush(tokens: string[]): boolean {
   );
 }
 
+function normalizeBranchName(name: string): string {
+  // Strip the refs/heads/ prefix so a fully qualified ref like
+  // `refs/heads/main` matches a protected entry written as `main`.
+  // Without this, an attacker could bypass the guard by writing
+  // `git push --force origin HEAD:refs/heads/main`. `git rev-parse
+  // --abbrev-ref HEAD` already returns short names, but normalising
+  // its output too keeps every code path consistent.
+  const trimmed = name.trim();
+  return trimmed.startsWith('refs/heads/')
+    ? trimmed.slice('refs/heads/'.length)
+    : trimmed;
+}
+
 function extractTarget(tokens: string[], cwd: string): string | null {
   // Drop any flags/options after `push`; first non-flag = remote, second = refspec.
   const pushIdx = tokens.findIndex(t => t === 'push');
@@ -101,9 +114,9 @@ function extractTarget(tokens: string[], cwd: string): string | null {
   if (positional.length >= 2) {
     const refspec = positional[1];
     const colon = refspec.indexOf(':');
-    if (colon === -1) return refspec;
+    if (colon === -1) return normalizeBranchName(refspec);
     if (colon === 0) return null; // delete-remote refspec — not a force-update of local
-    return refspec.slice(colon + 1);
+    return normalizeBranchName(refspec.slice(colon + 1));
   }
 
   // No explicit refspec — resolve current branch via git. execFile (not exec)
@@ -115,7 +128,7 @@ function extractTarget(tokens: string[], cwd: string): string | null {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     const name = out.trim();
-    return name && name !== 'HEAD' ? name : null;
+    return name && name !== 'HEAD' ? normalizeBranchName(name) : null;
   } catch {
     return null;
   }

@@ -227,7 +227,13 @@ enforce:
 **Target resolution:**
 1. `git push <remote> <src>:<dst>` → `dst`
 2. `git push <remote> <branch>` → `branch`
-3. `git push` or `git push <remote>` → current HEAD via `execFile('git', ['rev-parse', '--abbrev-ref', 'HEAD'])`
+3. `git push` or `git push <remote>` → current HEAD via `execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'])`
+
+The extracted target is normalised through `normalizeBranchName()`
+which strips a leading `refs/heads/` prefix, so a fully qualified ref
+(`HEAD:refs/heads/main`) matches a protected entry written as `main`.
+Without that step the guard would be bypassable via the long-form
+ref name.
 
 **Allow paths** (no block, audit-logged with `event: allow`):
 - target branch is not in `protected_branches`

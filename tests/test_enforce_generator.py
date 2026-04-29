@@ -482,6 +482,17 @@ class TestPhase41ForcePushGuard(unittest.TestCase):
         hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
         self.assertIn("FORCE-PUSH GUARD", hook_source)
 
+    def test_force_push_template_normalises_ref_names(self):
+        """Long-form refs (refs/heads/main) must normalise to short
+        names before comparison, so an attacker can't bypass via
+        `git push --force origin HEAD:refs/heads/main`. PR #16 R1 fix."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # The helper is the canonical normaliser — its presence gates
+        # both refspec and rev-parse paths.
+        self.assertIn("normalizeBranchName", hook_source)
+        self.assertIn("refs/heads/", hook_source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
