@@ -87,9 +87,30 @@ Test fixture proves end-to-end: `tests/fixtures/enforce/cr-prepush-rule.md` gene
 
 **18/18 tests pass.** The generator produces a TypeScript hook that bun accepts as syntactically valid.
 
-## What's still TODO (subsequent PRs)
+## Phase 1.2 — `mnemosyne enforce` CLI (shipped)
 
-- **Phase 1.2 — `mnemosyne enforce` CLI**: a slash command (or standalone CLI) that walks a memory directory, runs the generator on every entry with an `enforce` block, and writes the resulting hooks to `.claude/hooks/auto/`. Plus regeneration / orphan detection.
+The CLI walks a memory directory, runs the generator on every entry with an `enforce` block, and writes the resulting hook source to `.claude/hooks/auto/`. Reports orphan hooks (files in the output dir not produced by any memory entry) but never auto-deletes them.
+
+```
+PYTHONPATH=lib python -m enforce \
+  --memory-dir memory \
+  --output-dir .claude/hooks/auto \
+  [--template-dir templates/hooks] \
+  [--rule memory/specific-rule.md] \
+  [--dry-run] [--force] [-v]
+```
+
+Behavior contract (locked by `tests/test_enforce_cli.py`):
+- Memory entries without `enforce` blocks are silently skipped.
+- A failure on one entry does NOT halt the run — other entries still process; CLI exits non-zero overall.
+- Idempotent: re-running with no input change does not rewrite the hook (modulo the `Generated at:` timestamp). `--force` overrides.
+- `--dry-run` prints the plan without writing anything.
+- `--rule <path>` processes one entry only (skips orphan reporting).
+- Generated hooks are `chmod 0o755` so Claude Code can spawn them.
+
+The `PYTHONPATH=lib` prefix is needed until the pyproject.toml restructure lands (issue #10).
+
+## What's still TODO (subsequent PRs)
 - **Phase 2 — action-time rule re-injection**: a PostToolUse-side companion that, before high-stakes tool calls, re-injects the rule text into context as fresh content. Addresses the "I read the rule 5 hours ago and forgot" failure mode by removing the temporal gap between recall and decision.
 - **Phase 3 — violation telemetry → reinforcement loop**: append every hook firing (allow / block / skip-override) to a JSONL audit log. After N violations of the same rule, suggest escalation: auto-generate a tool hook, move to system prompt, escalate to CLAUDE.md.
 - **Phase 4 — pattern library**: 5-10 common rule shapes (destructive command, credential leak, force push, …) each with a dedicated template + a TEMPLATE_PATTERNS entry in the generator.
