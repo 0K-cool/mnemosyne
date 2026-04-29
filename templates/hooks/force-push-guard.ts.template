@@ -105,11 +105,36 @@ function normalizeBranchName(name: string): string {
     : trimmed;
 }
 
+// Long-form options that consume the next token as their value (so
+// `-o ci.skip` mustn't leave `ci.skip` in positional). Sourced from
+// `git push --help`. Keep this set narrow to the value-bearing options
+// that are actually valid for `git push` — bool flags don't need entries.
+const PUSH_OPTIONS_WITH_VALUE: ReadonlySet<string> = new Set([
+  '-o', '--push-option',
+  '--repo',
+  '--receive-pack', '--exec',
+  '--upload-pack',
+]);
+
 function extractTarget(tokens: string[], cwd: string): string | null {
-  // Drop any flags/options after `push`; first non-flag = remote, second = refspec.
-  const pushIdx = tokens.findIndex(t => t === 'push');
+  // Find `push` anywhere AFTER position 0, not just at index 1. This
+  // closes the `git -c key=value push --force ...` bypass surface,
+  // where the early `tokens[1] === 'push'` check would falsely exit.
+  const pushIdx = tokens.findIndex((t, i) => i > 0 && t === 'push');
   if (pushIdx === -1) return null;
-  const positional = tokens.slice(pushIdx + 1).filter(t => !t.startsWith('-'));
+
+  // Build positional args by skipping both flag tokens AND the values
+  // of options that consume the next token (-o ci.skip, --repo url,
+  // etc.). Without this, value tokens leak into `positional` and shift
+  // the remote / refspec parser, which can mis-resolve the branch.
+  const positional: string[] = [];
+  let skipNext = false;
+  for (const t of tokens.slice(pushIdx + 1)) {
+    if (skipNext) { skipNext = false; continue; }
+    if (PUSH_OPTIONS_WITH_VALUE.has(t)) { skipNext = true; continue; }
+    if (t.startsWith('-')) continue;
+    positional.push(t);
+  }
 
   if (positional.length >= 2) {
     const refspec = positional[1];
@@ -146,8 +171,13 @@ function main(): void {
   // Tokenise once and reuse — keeps the parser tight.
   const tokens = cmd.split(/\s+/).filter(t => t.length > 0);
 
-  // Quick sanity: must be a `git push` command.
-  if (!(tokens[0] === 'git' && tokens[1] === 'push')) process.exit(0);
+  // Quick sanity: must be a `git push` command. Accept full paths
+  // (`/usr/bin/git push ...`) and global options between git and push
+  // (`git -c key=value push ...`). The combined check below also
+  // catches `git --no-pager push`, `git --git-dir=… push`, etc.
+  const program = tokens[0] ?? '';
+  const isGit = /(^|[\\/])git$/.test(program);
+  if (!isGit || !tokens.includes('push')) process.exit(0);
   if (!isForcePush(tokens)) process.exit(0);
 
   const cwd = data.cwd || process.cwd();

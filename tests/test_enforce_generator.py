@@ -493,6 +493,23 @@ class TestPhase41ForcePushGuard(unittest.TestCase):
         self.assertIn("normalizeBranchName", hook_source)
         self.assertIn("refs/heads/", hook_source)
 
+    def test_force_push_template_resists_git_arg_bypasses(self):
+        """`git -c key=value push --force` and `-o ci.skip` value confusion.
+        PR #16 R2 fix. Asserts the rendered template carries the parser
+        improvements that close those bypass classes."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # 1. push detection accepts `push` anywhere after position 0,
+        #    so `git -c k=v push ...` is caught.
+        self.assertIn("i > 0 && t === 'push'", hook_source)
+        # 2. the loose `git` program check survives full paths
+        #    (`/usr/bin/git push ...`).
+        self.assertIn("isGit", hook_source)
+        # 3. value-consuming options skip the next token so their
+        #    values don't leak into the positional list.
+        self.assertIn("PUSH_OPTIONS_WITH_VALUE", hook_source)
+        self.assertIn("--push-option", hook_source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
