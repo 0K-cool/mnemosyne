@@ -11,6 +11,8 @@ Convention: templates use ${PARAM_NAME} placeholders, never positional.
 """
 
 import re
+import shutil
+import subprocess  # nosec B404 — test-only; resolved bun binary, constant args
 import sys
 import tempfile
 import unittest
@@ -27,6 +29,32 @@ from enforce.generator import (  # noqa: E402
     parse_memory_entry,
     pick_template,
 )
+
+
+def _assert_bun_build_clean(test_case: unittest.TestCase, source: str) -> None:
+    """Write the rendered TS to a temp file and assert bun accepts it.
+
+    Centralises the temp-file + bun-build dance so each call site stays
+    one line. Skips the test when bun isn't available on this machine.
+    """
+    bun = shutil.which("bun") or "/Users/kelvinlomboy/.bun/bin/bun"
+    if not Path(bun).exists():
+        test_case.skipTest("bun not available")
+
+    with tempfile.NamedTemporaryFile(suffix=".ts", mode="w", delete=False) as fh:
+        fh.write(source)
+        tmp = fh.name
+    try:
+        r = subprocess.run(  # nosec B603 — resolved bun, constant args
+            [bun, "build", "--no-bundle", "--target=bun", tmp],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        test_case.assertEqual(r.returncode, 0, f"bun build failed:\n{r.stderr}")
+    finally:
+        Path(tmp).unlink(missing_ok=True)
 
 
 class TestParseMemoryEntry(unittest.TestCase):
@@ -119,30 +147,7 @@ class TestGenerateHook(unittest.TestCase):
         fixture_path = FIXTURE_DIR / "cr-prepush-rule.md"
         md = fixture_path.read_text()
         hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
-
-        # Write to a temp file and ask bun to typecheck.
-        # B404/B603 nosec: test-only path, hardcoded bun binary, temp file
-        # is from tempfile module, arguments are constants — no untrusted input.
-        import subprocess  # nosec B404
-        with tempfile.NamedTemporaryFile(suffix=".ts", mode="w", delete=False) as fh:
-            fh.write(hook_source)
-            tmp = fh.name
-        try:
-            import shutil
-            bun = shutil.which("bun") or "/Users/kelvinlomboy/.bun/bin/bun"
-            if not Path(bun).exists():
-                self.skipTest("bun not available on PATH")
-            r = subprocess.run(  # nosec B603
-                [bun, "build", "--no-bundle", "--target=bun", tmp],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            # bun build returns 0 on syntax-clean files
-            self.assertEqual(r.returncode, 0, f"bun build failed:\n{r.stderr}")
-        finally:
-            Path(tmp).unlink(missing_ok=True)
+        _assert_bun_build_clean(self, hook_source)
 
     def test_missing_enforce_block_raises(self):
         md = (
@@ -186,28 +191,7 @@ class TestGenerateHook(unittest.TestCase):
         # Check 2: bun must still accept the source. A successful injection
         # would corrupt syntax (mismatched quotes / unexpected statements);
         # bun build returns non-zero. This is the strongest assertion.
-        import subprocess  # nosec B404
-        with tempfile.NamedTemporaryFile(suffix=".ts", mode="w", delete=False) as fh:
-            fh.write(hook_source)
-            tmp = fh.name
-        try:
-            import shutil
-            bun = shutil.which("bun") or "/Users/kelvinlomboy/.bun/bin/bun"
-            if not Path(bun).exists():
-                self.skipTest("bun not available on PATH")
-            r = subprocess.run(  # nosec B603
-                [bun, "build", "--no-bundle", "--target=bun", tmp],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            self.assertEqual(
-                r.returncode, 0,
-                f"bun build failed on injected hook (= injection succeeded):\n{r.stderr}",
-            )
-        finally:
-            Path(tmp).unlink(missing_ok=True)
+        _assert_bun_build_clean(self, hook_source)
 
 
 class TestPhase2Injection(unittest.TestCase):
@@ -346,26 +330,7 @@ class TestPhase2Injection(unittest.TestCase):
             "Body unused; explicit inject_text wins.\n"
         )
         hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
-
-        import subprocess  # nosec B404
-        with tempfile.NamedTemporaryFile(suffix=".ts", mode="w", delete=False) as fh:
-            fh.write(hook_source)
-            tmp = fh.name
-        try:
-            import shutil
-            bun = shutil.which("bun") or "/Users/kelvinlomboy/.bun/bin/bun"
-            if not Path(bun).exists():
-                self.skipTest("bun not available on PATH")
-            r = subprocess.run(  # nosec B603
-                [bun, "build", "--no-bundle", "--target=bun", tmp],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            self.assertEqual(r.returncode, 0, f"bun build failed:\n{r.stderr}")
-        finally:
-            Path(tmp).unlink(missing_ok=True)
+        _assert_bun_build_clean(self, hook_source)
 
 
 if __name__ == "__main__":
