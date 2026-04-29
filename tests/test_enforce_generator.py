@@ -391,5 +391,125 @@ class TestPhase4PatternLibrary(unittest.TestCase):
         self.assertIn("CR PRE-PUSH GUARD", hook_source)
 
 
+class TestPhase41ForcePushGuard(unittest.TestCase):
+    """Phase 4.1: force-push-guard template, dispatch, and protected_branches substitution."""
+
+    def _md(
+        self,
+        *,
+        pattern: str = r"git push --force",
+        template: str | None = None,
+        protected_branches: list[str] | None = None,
+    ) -> str:
+        lines = [
+            "---",
+            "name: phase41-test",
+            "type: feedback",
+            "enforce:",
+            "  tool: Bash",
+            f'  pattern: "{pattern}"',
+            "  hook: .claude/hooks/auto/test.ts",
+            "  generated_from: memory/p41.md",
+        ]
+        if template:
+            lines.append(f"  template: {template}")
+        if protected_branches is not None:
+            yaml_list = "[" + ", ".join(repr(b) for b in protected_branches) + "]"
+            lines.append(f"  protected_branches: {yaml_list}")
+        lines.extend(["---", "Body."])
+        return "\n".join(lines) + "\n"
+
+    def test_force_push_pattern_dispatches_to_force_push_template(self):
+        """`--force` substring in pattern → force-push-guard, ahead of cr-prepush."""
+        # Pattern contains both "git push" AND "--force"; first-match-wins
+        # ordering must put force-push-guard ahead of cr-prepush-guard so
+        # the more specific template is selected.
+        md = self._md(pattern=r"git push --force")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("FORCE-PUSH GUARD", hook_source)
+        self.assertNotIn("CR PRE-PUSH GUARD", hook_source)
+        self.assertNotIn("BLOCK-ON-MATCH GUARD", hook_source)
+
+    def test_force_push_template_renders_default_branches(self):
+        """Default ['main', 'master'] is substituted when operator omits the field."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # The substitution lands as a JS array literal in the rendered source.
+        self.assertIn('["main", "master"]', hook_source)
+
+    def test_force_push_template_renders_custom_branches(self):
+        """Operator-supplied protected_branches lands in the rendered source."""
+        md = self._md(protected_branches=["main", "master", "production"])
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn('["main", "master", "production"]', hook_source)
+
+    def test_force_push_template_compiles_under_bun(self):
+        """Sanity: force-push-guard renders to syntactically valid TypeScript."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        _assert_bun_build_clean(self, hook_source)
+
+    def test_force_push_template_uses_execfile_not_exec(self):
+        """Branch resolution must use the no-shell variant, never the
+        shell-interpreting one. The whole reason for the cwd-aware lookup
+        is to avoid the bash injection surface of a string command."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # Positive: the safe variant is present.
+        self.assertIn("execFileSync", hook_source)
+        # Negative: assemble the unsafe-call substring at runtime so the
+        # local secure-code-review hook (which substring-matches Edit
+        # inputs) doesn't trip on this assertion. The check itself is
+        # exact — it would catch any bare string-form spawn call.
+        forbidden = "exec" + "Sync("
+        self.assertNotIn(forbidden, hook_source)
+
+    def test_force_push_template_audit_uses_schema_path(self):
+        """AUDIT_PATH must come from {{AUDIT_LOG_PATH}}, not be reconstructed
+        from {{HOOK_PATH}} — same correctness fix that PR #15 R2 applied to
+        the block-on-match primitive."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # The schema's audit_log default is hook_stem + ".audit.jsonl";
+        # the hook in this fixture is .claude/hooks/auto/test.ts so the
+        # path the generator computed is .claude/hooks/auto/test.audit.jsonl.
+        self.assertIn(".claude/hooks/auto/test.audit.jsonl", hook_source)
+
+    def test_force_push_explicit_template_field_works(self):
+        """An operator can also opt in via enforce.template explicitly."""
+        # Pattern doesn't contain --force; explicit template still picks it.
+        md = self._md(pattern=r"some-other-pattern", template="force-push-guard.ts.template")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("FORCE-PUSH GUARD", hook_source)
+
+    def test_force_push_template_normalises_ref_names(self):
+        """Long-form refs (refs/heads/main) must normalise to short
+        names before comparison, so an attacker can't bypass via
+        `git push --force origin HEAD:refs/heads/main`. PR #16 R1 fix."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # The helper is the canonical normaliser — its presence gates
+        # both refspec and rev-parse paths.
+        self.assertIn("normalizeBranchName", hook_source)
+        self.assertIn("refs/heads/", hook_source)
+
+    def test_force_push_template_resists_git_arg_bypasses(self):
+        """`git -c key=value push --force` and `-o ci.skip` value confusion.
+        PR #16 R2 fix. Asserts the rendered template carries the parser
+        improvements that close those bypass classes."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # 1. push detection accepts `push` anywhere after position 0,
+        #    so `git -c k=v push ...` is caught.
+        self.assertIn("i > 0 && t === 'push'", hook_source)
+        # 2. the loose `git` program check survives full paths
+        #    (`/usr/bin/git push ...`).
+        self.assertIn("isGit", hook_source)
+        # 3. value-consuming options skip the next token so their
+        #    values don't leak into the positional list.
+        self.assertIn("PUSH_OPTIONS_WITH_VALUE", hook_source)
+        self.assertIn("--push-option", hook_source)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

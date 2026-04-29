@@ -225,4 +225,30 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
         )
     out["inject_token_budget"] = raw_budget
 
+    # ---- Phase 4.1: force-push-guard parameters ----
+
+    # protected_branches — optional list of non-empty branch-name strings.
+    # Consumed by force-push-guard.ts.template; the generator applies the
+    # default (main, master) when this field is omitted, so schema only
+    # validates shape when the operator sets it explicitly.
+    if "protected_branches" in out:
+        candidate = out["protected_branches"]
+        if not isinstance(candidate, list):
+            raise EnforceValidationError(
+                f"protected_branches must be a list, got {type(candidate).__name__}"
+            )
+        if not candidate:
+            raise EnforceValidationError(
+                "protected_branches must be non-empty when present"
+            )
+        for i, item in enumerate(candidate):
+            if not isinstance(item, str) or not item.strip():
+                raise EnforceValidationError(
+                    f"protected_branches[{i}] must be a non-empty string, got {item!r}"
+                )
+            if any(c.isspace() for c in item):
+                raise EnforceValidationError(
+                    f"protected_branches[{i}] must not contain whitespace, got {item!r}"
+                )
+
     return out

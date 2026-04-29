@@ -1,6 +1,6 @@
 # Mnemosyne v2 — Memory-Driven Enforcement Layer (design)
 
-> **Status:** v2.0 alpha — Phase 1 scaffolding (schema + generator + first template). Subsequent PRs implement the CLI, action-time injection, and telemetry loop.
+> **Status:** v2.0 alpha — Phases 1, 1.2, 2, 3, 4, and 4.1 shipped. Phases 4.2 (credential-leak-guard) and 5 (multi-language hook generators) still queued.
 
 ## The gap v2 closes
 
@@ -186,8 +186,87 @@ Like cr-prepush, supports `{{INJECT_BLOCK}}`/`{{INJECT_CALL}}` so Phase 2's `inj
 
 Subsequent Phase 4.x PRs add tool-specific templates (force-push branch parser, Edit/Write content scanning for credentials, etc.) — each is non-trivial enough to warrant its own focused PR.
 
+## Phase 4.1 — force-push-guard (shipped)
+
+The first tool-aware template in the pattern library. Where the
+block-on-match primitive treats the command as an opaque string,
+force-push-guard tokenises `git push` arguments and resolves the
+target branch — either from an explicit refspec or by shelling out
+to `git rev-parse --abbrev-ref HEAD` for the implicit case.
+
+### New schema field
+
+```yaml
+enforce:
+  ... existing fields ...
+  protected_branches: [main, master, production]   # optional list of branch names
+```
+
+Validation rules: the list must be non-empty, every element must be a
+non-empty string, and no element may contain whitespace (git refuses
+those branch names anyway, and accepting them would silently no-op
+the guard). When the field is omitted, the generator substitutes
+`["main", "master"]` at substitution time — the schema stays
+template-agnostic, so adding new templates with their own parameters
+doesn't bloat the validator.
+
+### New template — `force-push-guard.ts.template`
+
+```yaml
+enforce:
+  tool: Bash
+  pattern: "git push --force"          # auto-dispatches to force-push-guard
+  hook: .claude/hooks/auto/force-push-guard.ts
+  generated_from: memory/feedback_no_force_to_main.md
+  protected_branches: [main, master]   # optional; this is the default
+```
+
+**Force flags recognised:** `--force`, `-f`, `--force-with-lease`
+(including the `=` form for ref-pin), `--force-if-includes`.
+
+**Target resolution:**
+1. `git push <remote> <src>:<dst>` → `dst`
+2. `git push <remote> <branch>` → `branch`
+3. `git push` or `git push <remote>` → current HEAD via `execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'])`
+
+The extracted target is normalised through `normalizeBranchName()`
+which strips a leading `refs/heads/` prefix, so a fully qualified ref
+(`HEAD:refs/heads/main`) matches a protected entry written as `main`.
+Without that step the guard would be bypassable via the long-form
+ref name.
+
+**Allow paths** (no block, audit-logged with `event: allow`):
+- target branch is not in `protected_branches`
+- target cannot be resolved (detached HEAD, git lookup failed)
+- delete-remote refspec (`:branch`) — separate concern, not a force-update of local
+
+**Implementation notes:**
+- Uses `execFileSync` with an args array, never a shell string. There
+  is no user-controlled argument, but treating `git rev-parse` as a
+  shell command would still be the wrong shape — Mnemosyne templates
+  default to no-shell process spawning everywhere.
+- Keeps the same `{{AUDIT_LOG_PATH}}` discipline as the block-on-match
+  primitive after PR #15 R2: the audit path is whatever the schema
+  computed (default `hook_stem + ".audit.jsonl"`), not a string
+  rebuilt from `{{HOOK_PATH}}`.
+- Phase 2 re-injection compatible — `{{INJECT_BLOCK}}` and
+  `{{INJECT_CALL}}` placeholders are wired so `inject_on_match: true`
+  works on this template.
+
+### TEMPLATE_PATTERNS dispatch order
+
+```python
+TEMPLATE_PATTERNS = (
+    ("Bash", "--force",  "force-push-guard.ts.template"),  # specific
+    ("Bash", "git push", "cr-prepush-guard.ts.template"),  # general
+)
+```
+
+First match wins, so the more specific `--force` substring shadows
+the general `git push`. Operators who want force-push-guard for a
+non-force pattern (rare) can still opt in via `enforce.template:`.
+
 ## What's still TODO (subsequent PRs)
-- **Phase 4.1 — force-push-guard**: branch-aware blocking for `git push --force` to main / master
 - **Phase 4.2 — credential-leak-guard**: Edit/Write content scanning for AWS keys, API tokens, .env markers
 - **Phase 5 — multi-language hook gen**: Python and shell hook generators for environments without bun.
 
