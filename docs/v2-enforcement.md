@@ -309,6 +309,17 @@ When the field is omitted, the generator substitutes the curated
 default at substitution time — schema stays template-agnostic, same
 shape as `protected_branches` from Phase 4.1.
 
+**Portable-subset constraint**: each pattern is compiled twice —
+once by the schema validator under Python `re` (build time), and
+once by the generated hook under JS `new RegExp()` (runtime). The
+two engines are mostly identical but diverge on named groups and
+inline flags. The validator therefore rejects the highest-frequency
+Python-only constructs (`(?P<name>…)`, `(?P=name)`, `(?aiLmsux:…)`)
+with a clear error, and the documented contract is "stick to the
+intersection": unnamed `(…)` groups, atoms, quantifiers, `|`, `^$`,
+`\b`, lookarounds. JS-only forms like `(?<name>…)` aren't supported
+either — they fail Python `re.compile` at validation time.
+
 ### Schema's `pattern` field becomes a file_path scope filter
 
 For `Bash`-tool templates the schema's `pattern` regex matches

@@ -364,6 +364,40 @@ class TestCredentialPatternsField(unittest.TestCase):
         with self.assertRaises(EnforceValidationError):
             validate_enforce_block(self._base(credential_patterns=[r"[unclosed"]))
 
+    def test_credential_patterns_rejects_python_only_named_group(self):
+        # `(?P<name>...)` compiles under Python `re` but throws under
+        # JS `new RegExp()`. The schema must catch that asymmetry — the
+        # rendered hook would crash at startup.
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(self._base(
+                credential_patterns=[r"(?P<token>AKIA[0-9A-Z]{16})"]
+            ))
+        self.assertIn("Python-only", str(ctx.exception))
+
+    def test_credential_patterns_rejects_python_only_named_backref(self):
+        with self.assertRaises(EnforceValidationError):
+            validate_enforce_block(self._base(
+                credential_patterns=[r"(?P<x>\w+)\s+(?P=x)"]
+            ))
+
+    def test_credential_patterns_rejects_python_only_inline_flags(self):
+        # `(?aiLmsux:...)` and `(?aiLmsux)` use Python-specific flag
+        # letters (a/L/u/x) that JS RegExp doesn't accept.
+        for bad in (r"(?ai:secret)", r"(?Lmsux)hidden"):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(credential_patterns=[bad]))
+
+    def test_credential_patterns_accepts_unnamed_groups(self):
+        # The portable subset between Python `re` and JS RegExp does NOT
+        # include named groups — Python uses `(?P<name>...)` (rejected
+        # by JS), JS uses `(?<name>...)` (rejected by Python re). The
+        # documented contract is: stick to unnamed groups for cross-
+        # syntax patterns. Schema accepts those without complaint.
+        result = validate_enforce_block(self._base(
+            credential_patterns=[r"(AKIA[0-9A-Z]{16})", r"(\w+)\s+(\w+)"]
+        ))
+        self.assertEqual(len(result["credential_patterns"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

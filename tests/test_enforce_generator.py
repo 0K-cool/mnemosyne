@@ -600,6 +600,19 @@ class TestPhase42CredentialLeakGuard(unittest.TestCase):
         self.assertIn("FILE_PATH_FILTER", hook_source)
         self.assertIn(r"\\.env$", hook_source)
 
+    def test_credential_leak_template_fails_closed_on_bad_input(self):
+        """Unlike the other templates (which fail open with exit 0 on
+        stdin/parse errors), credential-leak-guard MUST fail closed —
+        a malformed hook payload should block the write, not slip
+        credentials through. PR #17 R1 fix."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # The fail-closed branch logs the protocol failure, audits a
+        # block event, and exits 2.
+        self.assertIn("invalid hook input", hook_source)
+        self.assertIn("event: 'block', reason: 'invalid hook input'", hook_source)
+        self.assertIn("process.exit(2)", hook_source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

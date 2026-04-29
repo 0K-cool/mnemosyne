@@ -23,7 +23,8 @@ interface HookInput {
 
 const PAI_DIR =
   process.env.PAI_DIR ||
-  join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  // Hook path is .claude/hooks/auto/<file>.ts — three `..` to reach repo root.
+  join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const AUDIT_PATH = join(PAI_DIR, '{{AUDIT_LOG_PATH}}');
 const PATTERN = new RegExp({{PATTERN_JSON}});
 const REPO_FILTER_RAW = {{REPO_FILTER_JSON}};
