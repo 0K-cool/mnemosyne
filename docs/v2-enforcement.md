@@ -91,7 +91,7 @@ Test fixture proves end-to-end: `tests/fixtures/enforce/cr-prepush-rule.md` gene
 
 The CLI walks a memory directory, runs the generator on every entry with an `enforce` block, and writes the resulting hook source to `.claude/hooks/auto/`. Reports orphan hooks (files in the output dir not produced by any memory entry) but never auto-deletes them.
 
-```
+```bash
 PYTHONPATH=lib python -m enforce \
   --memory-dir memory \
   --output-dir .claude/hooks/auto \

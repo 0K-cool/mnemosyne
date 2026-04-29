@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Optional
 
 from .generator import GenerationError, generate_hook, parse_memory_entry
-from .schema import EnforceValidationError
+from .schema import HOOK_PATH_PREFIX, EnforceValidationError
 
 _log = logging.getLogger("mnemosyne.enforce")
 
@@ -159,9 +159,12 @@ def _process_one(
         return False, f"{memory_path.name}: {exc}", None
 
     # The hook output path comes from the validated enforce block.
-    hook_relpath = meta["enforce"]["hook"]  # validated as `.claude/hooks/auto/<file>`
-    hook_filename = Path(hook_relpath).name
-    out_path = output_dir / hook_filename
+    # Schema guarantees it starts with HOOK_PATH_PREFIX. Preserve any
+    # nested subpath (e.g. `.claude/hooks/auto/sub/x.ts` keeps `sub/x.ts`)
+    # so multiple rules can group hooks without name collisions.
+    hook_relpath = meta["enforce"]["hook"]
+    rel_under_prefix = hook_relpath[len(HOOK_PATH_PREFIX):] if hook_relpath.startswith(HOOK_PATH_PREFIX) else Path(hook_relpath).name
+    out_path = output_dir / rel_under_prefix
 
     if dry_run:
         _log.info("[dry-run] would write %s (%d bytes)", out_path, len(hook_source))
@@ -193,15 +196,29 @@ def _process_one(
     return True, None, out_path
 
 
+# Sidecar files written next to a generated hook (audit logs). Not hooks.
+_AUDIT_SIDECAR_SUFFIXES: tuple[str, ...] = (".audit.jsonl", ".audit.json")
+
+
 def _report_orphans(output_dir: Path, produced: set[Path]) -> list[Path]:
-    """List hook files in output_dir that no memory entry produced this run."""
+    """List hook files in output_dir that no memory entry produced this run.
+
+    Walks recursively (nested hook subdirectories are valid) and ignores
+    sidecar files (audit logs) that the hooks themselves create at runtime.
+    Path comparison is done on resolved/absolute paths so producer-vs-orphan
+    matching works regardless of how the caller wrote the path.
+    """
     if not output_dir.exists():
         return []
-    orphans = []
-    for child in sorted(output_dir.iterdir()):
+
+    produced_resolved = {p.resolve() for p in produced}
+    orphans: list[Path] = []
+    for child in sorted(output_dir.rglob("*")):
         if not child.is_file():
             continue
-        if child not in produced:
+        if any(child.name.endswith(suffix) for suffix in _AUDIT_SIDECAR_SUFFIXES):
+            continue
+        if child.resolve() not in produced_resolved:
             orphans.append(child)
     return orphans
 
