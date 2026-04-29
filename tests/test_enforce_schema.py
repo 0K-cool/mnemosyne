@@ -264,5 +264,60 @@ class TestExplicitTemplateField(unittest.TestCase):
             validate_enforce_block(self._base(template="sub/x.template"))
 
 
+class TestProtectedBranchesField(unittest.TestCase):
+    """Phase 4.1: optional `protected_branches` field for force-push-guard."""
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"git push --force",
+            "hook": ".claude/hooks/auto/g.ts",
+            "generated_from": "memory/x.md",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_protected_branches_optional_default_unset(self):
+        # Schema stays template-agnostic — the generator applies the
+        # ["main", "master"] default at substitution time when this is
+        # absent. Asserting absence here pins that contract.
+        result = validate_enforce_block(self._base())
+        self.assertNotIn("protected_branches", result)
+
+    def test_protected_branches_passes_through_when_valid(self):
+        result = validate_enforce_block(
+            self._base(protected_branches=["main", "master", "production"])
+        )
+        self.assertEqual(
+            result["protected_branches"], ["main", "master", "production"]
+        )
+
+    def test_protected_branches_must_be_a_list(self):
+        for bad in ("main", 42, None, {"main": True}):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(protected_branches=bad))
+
+    def test_protected_branches_rejects_empty_list(self):
+        with self.assertRaises(EnforceValidationError):
+            validate_enforce_block(self._base(protected_branches=[]))
+
+    def test_protected_branches_rejects_non_string_element(self):
+        for bad in (["main", 42], ["main", None], ["main", []]):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(protected_branches=bad))
+
+    def test_protected_branches_rejects_empty_string_element(self):
+        for bad in (["main", ""], ["main", "   "]):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(protected_branches=bad))
+
+    def test_protected_branches_rejects_whitespace_in_branch_name(self):
+        # Branch names with whitespace are invalid in git anyway, and
+        # accepting them would let an operator silently no-op the guard.
+        for bad in (["main", "feature branch"], ["main", "evil\tbranch"]):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(protected_branches=bad))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -41,6 +41,10 @@ GENERATOR_VERSION = "2.0.0"
 # When a new rule shape arrives, add a new template + entry here.
 TEMPLATE_PATTERNS: tuple[tuple[str, str, str], ...] = (
     # (tool, pattern_substring, template filename)
+    # Order matters — first match wins. Put more specific patterns first
+    # so they shadow more general ones (e.g. "--force" must be considered
+    # before "git push" because every force push contains both).
+    ("Bash", "--force", "force-push-guard.ts.template"),
     ("Bash", "git push", "cr-prepush-guard.ts.template"),
 )
 
@@ -250,6 +254,10 @@ def generate_hook(md: str, template_dir: Path) -> str:
         ),
         "INJECT_BLOCK": inject_block,
         "INJECT_CALL": inject_call,
+        # Phase 4.1: default applied here so the schema stays template-agnostic.
+        "PROTECTED_BRANCHES_JSON": json.dumps(
+            enforce.get("protected_branches", ["main", "master"])
+        ),
     }
 
     return _render(template_text, params)
