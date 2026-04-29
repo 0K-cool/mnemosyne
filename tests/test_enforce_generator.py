@@ -128,8 +128,12 @@ class TestGenerateHook(unittest.TestCase):
             fh.write(hook_source)
             tmp = fh.name
         try:
+            import shutil
+            bun = shutil.which("bun") or "/Users/kelvinlomboy/.bun/bin/bun"
+            if not Path(bun).exists():
+                self.skipTest("bun not available on PATH")
             r = subprocess.run(  # nosec B603
-                ["/Users/kelvinlomboy/.bun/bin/bun", "build", "--no-bundle", "--target=bun", tmp],
+                [bun, "build", "--no-bundle", "--target=bun", tmp],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -187,8 +191,12 @@ class TestGenerateHook(unittest.TestCase):
             fh.write(hook_source)
             tmp = fh.name
         try:
+            import shutil
+            bun = shutil.which("bun") or "/Users/kelvinlomboy/.bun/bin/bun"
+            if not Path(bun).exists():
+                self.skipTest("bun not available on PATH")
             r = subprocess.run(  # nosec B603
-                ["/Users/kelvinlomboy/.bun/bin/bun", "build", "--no-bundle", "--target=bun", tmp],
+                [bun, "build", "--no-bundle", "--target=bun", tmp],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -258,6 +266,62 @@ class TestPhase2Injection(unittest.TestCase):
         self.assertIn("additionalContext", hook_source)
         self.assertIn("Body of the memory entry", hook_source)
 
+    def test_inject_text_with_curly_braces_does_not_trip_placeholder_check(self):
+        """User-supplied {{...}} in inject_text must not trigger _render's residue check."""
+        # If neutralisation is missing, generate_hook would raise GenerationError
+        # because _render rejects rendered output containing {{IDENT}}.
+        md = (
+            "---\n"
+            "name: curly-brace-test\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "git push -u origin"\n'
+            "  hook: .claude/hooks/auto/cr-prepush.ts\n"
+            "  generated_from: memory/cb.md\n"
+            "  inject_on_match: true\n"
+            "  inject_text: |\n"
+            "    Reminder: do not use {{TOOL}}-style placeholders in your edits.\n"
+            "---\n"
+            "Body.\n"
+        )
+        # Should NOT raise — and the injected text should appear in flattened form
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("additionalContext", hook_source)
+        # Curly pairs broken with a space so they don't match the placeholder regex
+        self.assertNotIn("{{TOOL}}", hook_source)
+        self.assertIn("{ {TOOL} }", hook_source)
+
+    def test_truncation_respects_token_budget(self):
+        """Truncated inject_text must not exceed inject_token_budget * 4 chars."""
+        # Use the smallest legal budget (1) for a tight bound: max 4 chars
+        budget = 1
+        long_text = "A" * 1000
+        md = (
+            "---\n"
+            "name: trunc-test\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "git push -u origin"\n'
+            "  hook: .claude/hooks/auto/cr-prepush.ts\n"
+            "  generated_from: memory/t.md\n"
+            "  inject_on_match: true\n"
+            f"  inject_token_budget: {budget}\n"
+            "  inject_text: |\n"
+            f"    {long_text}\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # Pull the INJECT_TEXT literal out of the rendered source
+        import re
+        m = re.search(r'const INJECT_TEXT = "([^"]*)"', hook_source)
+        self.assertIsNotNone(m, "INJECT_TEXT constant not found in rendered hook")
+        injected = m.group(1)
+        # Budget = 1 token = 4 chars. Even with the truncation suffix, total
+        # rendered char count must not exceed the budget.
+        self.assertLessEqual(len(injected), budget * 4,
+            f"truncation exceeded budget: {len(injected)} > {budget * 4} chars")
+
     def test_injection_hook_compiles_under_bun(self):
         """Sanity: the rendered hook with injection is syntactically valid TS.
 
@@ -288,8 +352,12 @@ class TestPhase2Injection(unittest.TestCase):
             fh.write(hook_source)
             tmp = fh.name
         try:
+            import shutil
+            bun = shutil.which("bun") or "/Users/kelvinlomboy/.bun/bin/bun"
+            if not Path(bun).exists():
+                self.skipTest("bun not available on PATH")
             r = subprocess.run(  # nosec B603
-                ["/Users/kelvinlomboy/.bun/bin/bun", "build", "--no-bundle", "--target=bun", tmp],
+                [bun, "build", "--no-bundle", "--target=bun", tmp],
                 capture_output=True,
                 text=True,
                 timeout=30,

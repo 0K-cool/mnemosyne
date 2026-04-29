@@ -167,9 +167,23 @@ def _build_injection_snippet(enforce: dict[str, Any], body: str) -> tuple[str, s
         # an empty additionalContext. Treat as disabled.
         return "", ""
 
+    # Neutralise template-like sequences so user text containing literal
+    # `{{...}}` cannot trip _render's placeholder-residue guard. The
+    # injected JSON literal already escapes quotes/backslashes; we only
+    # need to break the `{{` / `}}` pairs the placeholder regex matches.
+    text = text.replace("{{", "{ {").replace("}}", "} }")
+
+    # Cap to char budget. Keep the truncation suffix INSIDE the budget so
+    # the final string never exceeds inject_token_budget * 4 chars.
+    suffix = "…[truncated]"
     char_budget = enforce["inject_token_budget"] * 4
     if len(text) > char_budget:
-        text = text[:char_budget].rstrip() + "…[truncated]"
+        keep = max(0, char_budget - len(suffix))
+        text = text[:keep].rstrip() + suffix
+        # Edge case: if suffix itself overflows the budget, return a
+        # tail-truncated suffix so we never exceed char_budget.
+        if len(text) > char_budget:
+            text = suffix[-char_budget:]
 
     text_json = json.dumps(text)
     inject_block = (
