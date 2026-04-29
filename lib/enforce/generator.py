@@ -4,9 +4,11 @@ Reads a markdown memory entry with YAML frontmatter, validates the
 `enforce` block, picks a matching template, and substitutes parameters
 to produce ready-to-execute hook source.
 
-Templates use ${PARAM} placeholders (string.Template) — no positional
-substitution, no Jinja loops. Keep the generation surface small so
-generated hooks are auditable line-by-line.
+Templates use {{PARAM}} placeholders (Jinja-style brackets) — no positional
+substitution, no logic blocks. Brackets chosen over ${PARAM} so generated
+TypeScript hooks can use template literals (`${expr}`) without escaping.
+Keep the generation surface small so generated hooks are auditable
+line-by-line.
 
 Public API:
   - parse_memory_entry(md) → (meta, body)
@@ -161,8 +163,8 @@ def generate_hook(md: str, template_dir: Path) -> str:
 # Re-export for convenience so callers can `from enforce.generator import …`
 __all__ = [
     "EnforceValidationError",
-    "GenerationError",
     "GENERATOR_VERSION",
+    "GenerationError",
     "generate_hook",
     "parse_memory_entry",
     "pick_template",

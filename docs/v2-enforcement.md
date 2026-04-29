@@ -85,7 +85,7 @@ Test fixture proves end-to-end: `tests/fixtures/enforce/cr-prepush-rule.md` gene
 - `tests/test_enforce_generator.py` — 8 tests (parsing, template matching, end-to-end + bun syntax verification)
 - `docs/v2-enforcement.md` — this document
 
-**21/21 tests pass.** The generator produces a TypeScript hook that bun accepts as syntactically valid.
+**18/18 tests pass.** The generator produces a TypeScript hook that bun accepts as syntactically valid.
 
 ## What's still TODO (subsequent PRs)
 

@@ -48,7 +48,12 @@ const CODE_FILE_PATTERNS: RegExp[] = [
 ];
 
 function readStdinSync(): string {
-  try { return readFileSync(0, 'utf8'); } catch { return ''; }
+  try {
+    return readFileSync(0, 'utf8');
+  } catch (err) {
+    console.error(`[cr-prepush-guard] stdin read failed: ${err}`);
+    return '';
+  }
 }
 
 function gitOut(cwd: string, ...args: string[]): string {
@@ -65,7 +70,11 @@ function appendAudit(entry: Record<string, unknown>): void {
   try {
     mkdirSync(dirname(AUDIT_PATH), { recursive: true });
     appendFileSync(AUDIT_PATH, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
-  } catch {}
+  } catch (err) {
+    // Audit integrity matters — surface failures to stderr so operators
+    // know the log is incomplete. Don't fail the hook itself.
+    console.error(`[cr-prepush-guard] audit write to ${AUDIT_PATH} failed: ${err}`);
+  }
 }
 
 function emitBlock(reason: string, head: string, repo: string): never {

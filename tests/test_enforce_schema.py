@@ -149,8 +149,9 @@ class TestValidateEnforceBlockRejection(unittest.TestCase):
             validate_enforce_block(raw)
 
     def test_freshness_secs_must_be_positive_int(self):
-        """Freshness window must be a positive integer."""
-        for bad in (0, -1, "30", 30.5, None):
+        """Freshness window must be a positive integer (and not a bool)."""
+        # bool is a subclass of int in Python, so we must explicitly reject it.
+        for bad in (0, -1, "30", 30.5, None, True, False):
             raw = {
                 "tool": "Bash",
                 "pattern": r"x",

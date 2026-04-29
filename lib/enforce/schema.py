@@ -135,9 +135,10 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
         _validate_path_safe(out["audit_log"], "audit_log")
     else:
         # Derive a sibling path: .claude/hooks/auto/foo.ts -> .../foo.audit.jsonl
-        out["audit_log"] = re.sub(r"\.[^./\\]+$", ".audit.jsonl", out["hook"])
-        if not out["audit_log"].endswith(".audit.jsonl"):
-            out["audit_log"] = out["hook"] + ".audit.jsonl"
+        # Strip any trailing extension; if there isn't one the stem == hook path,
+        # which is fine — we just append .audit.jsonl to it.
+        hook_stem = re.sub(r"\.[^./\\]+$", "", out["hook"])
+        out["audit_log"] = hook_stem + ".audit.jsonl"
 
     # repo_filter — optional regex
     if "repo_filter" in out:
