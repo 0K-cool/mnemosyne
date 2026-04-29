@@ -48,19 +48,22 @@ function appendAudit(entry: Record<string, unknown>): void {
 }
 
 function emitBlock(reason: string): never {
+  // Box width = 60 inner chars between the │ rails (61 dashes for the borders).
+  const W = 60;
+  const pad = (s: string): string => s.length >= W ? s.slice(0, W) : s + ' '.repeat(W - s.length);
   const lines = [
     '',
-    '┌─────────────────────────────────────────────────────────────┐',
-    '│  🛑 BLOCK-ON-MATCH GUARD — BLOCKED                           │',
-    '├─────────────────────────────────────────────────────────────┤',
-    `│  Reason: ${reason}`,
-    `│  Pattern: ${PATTERN.source}`,
-    '│                                                              │',
-    '│  Source rule: {{GENERATED_FROM}}                             │',
-    '│                                                              │',
-    '│  This hook always blocks on match. Edit the source memory    │',
-    '│  entry to refine the pattern, or remove enforce: from it.    │',
-    '└─────────────────────────────────────────────────────────────┘',
+    '┌──────────────────────────────────────────────────────────────┐',
+    `│${pad('  🛑 BLOCK-ON-MATCH GUARD — BLOCKED')}│`,
+    '├──────────────────────────────────────────────────────────────┤',
+    `│${pad('  Reason: ' + reason)}│`,
+    `│${pad('  Pattern: ' + PATTERN.source)}│`,
+    `│${pad('')}│`,
+    `│${pad('  Source rule: {{GENERATED_FROM}}')}│`,
+    `│${pad('')}│`,
+    `│${pad('  This hook always blocks on match. Edit the source')}│`,
+    `│${pad('  memory entry to refine the pattern.')}│`,
+    '└──────────────────────────────────────────────────────────────┘',
     '',
   ];
   console.error(lines.join('\n'));
@@ -78,14 +81,14 @@ function main(): void {
   const cmd = data.tool_input?.command || '';
   if (!PATTERN.test(cmd)) process.exit(0);
 
-  // Optional repo gating — skip when origin doesn't match
+  // Note: enforce.repo_filter is supported by cr-prepush-guard.ts.template
+  // (which already shells out to git). This block-on-match primitive
+  // intentionally does not implement repo filtering — keeping it lean
+  // (no child_process). If you need git-aware gating, use cr-prepush-guard
+  // or wait for a tool-aware variant in a future phase.
   if (REPO_FILTER) {
-    const cwd = data.cwd || process.cwd();
-    // Best-effort origin lookup via stdin-only env (no spawn here to keep
-    // this primitive lean). Trust the caller to pass cwd correctly.
-    // If REPO_FILTER is configured but we can't read origin, allow through —
-    // the cr-prepush template uses git directly when this matters.
-    void cwd;
+    // Constant referenced for the type checker; filter is a no-op here.
+    void REPO_FILTER;
   }
 
 {{INJECT_CALL}}
