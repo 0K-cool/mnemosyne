@@ -225,6 +225,34 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
         )
     out["inject_token_budget"] = raw_budget
 
+    # ---- Phase 4.2: credential-leak-guard parameters ----
+
+    # credential_patterns — optional list of non-empty regex strings.
+    # Each must compile. Consumed by credential-leak-guard.ts.template;
+    # the generator applies a curated default list when this field is
+    # omitted, so schema only validates shape when set explicitly.
+    if "credential_patterns" in out:
+        candidate = out["credential_patterns"]
+        if not isinstance(candidate, list):
+            raise EnforceValidationError(
+                f"credential_patterns must be a list, got {type(candidate).__name__}"
+            )
+        if not candidate:
+            raise EnforceValidationError(
+                "credential_patterns must be non-empty when present"
+            )
+        for i, item in enumerate(candidate):
+            if not isinstance(item, str) or not item.strip():
+                raise EnforceValidationError(
+                    f"credential_patterns[{i}] must be a non-empty string, got {item!r}"
+                )
+            try:
+                re.compile(item)
+            except re.error as exc:
+                raise EnforceValidationError(
+                    f"credential_patterns[{i}] is not a valid regex: {exc}"
+                ) from exc
+
     # ---- Phase 4.1: force-push-guard parameters ----
 
     # protected_branches — optional list of non-empty branch-name strings.

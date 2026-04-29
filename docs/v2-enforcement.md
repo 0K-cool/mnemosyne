@@ -1,6 +1,6 @@
 # Mnemosyne v2 — Memory-Driven Enforcement Layer (design)
 
-> **Status:** v2.0 alpha — Phases 1, 1.2, 2, 3, 4, and 4.1 shipped. Phases 4.2 (credential-leak-guard) and 5 (multi-language hook generators) still queued.
+> **Status:** v2.0 alpha — Phases 1, 1.2, 2, 3, 4, 4.1, and 4.2 shipped. Phase 5 (multi-language hook generators) still queued.
 
 ## The gap v2 closes
 
@@ -266,8 +266,119 @@ First match wins, so the more specific `--force` substring shadows
 the general `git push`. Operators who want force-push-guard for a
 non-force pattern (rare) can still opt in via `enforce.template:`.
 
+## Phase 4.2 — credential-leak-guard (shipped)
+
+Second tool-aware template, this time hooking the write surface
+(`Edit`, `Write`, `MultiEdit`) instead of `Bash`. Scans the new
+content the operator is about to commit against a curated set of
+credential patterns; first match → block.
+
+### Default credential patterns
+
+Conservative high-confidence list — chosen so the false-positive
+rate stays low against legitimate code. AWS secret keys (40-char
+base64) are intentionally excluded; they collide with too many real
+hashes / build artifacts.
+
+| Pattern | Catches |
+|---|---|
+| `AKIA[0-9A-Z]{16}` | AWS access key id |
+| `github_pat_[A-Za-z0-9_]{82}` | GitHub fine-grained PAT |
+| `gh[pousr]_[A-Za-z0-9]{36}` | GitHub classic tokens (ghp_/gho_/ghu_/ghs_/ghr_) |
+| `xox[abprs]-[A-Za-z0-9-]{10,}` | Slack tokens |
+| `-----BEGIN [A-Z ]*PRIVATE KEY-----` | PEM private key headers |
+| `(sk\|pk\|rk)_live_[A-Za-z0-9]{24,}` | Stripe live keys |
+| `npm_[A-Za-z0-9]{36}` | npm publish tokens |
+| `glpat-[A-Za-z0-9_-]{20,}` | GitLab PATs |
+
+Operators extend or override the default list via the schema's
+`credential_patterns` field.
+
+### New schema field
+
+```yaml
+enforce:
+  ... existing fields ...
+  credential_patterns:                          # optional list of regex strings
+    - "AKIA[0-9A-Z]{16}"
+    - "MYORG_INTERNAL_TOKEN_[A-Z0-9]{32}"
+```
+
+Each entry must be a non-empty string AND must compile as a regex.
+When the field is omitted, the generator substitutes the curated
+default at substitution time — schema stays template-agnostic, same
+shape as `protected_branches` from Phase 4.1.
+
+### Schema's `pattern` field becomes a file_path scope filter
+
+For `Bash`-tool templates the schema's `pattern` regex matches
+against the command line. For credential-leak-guard the same field
+matches against `tool_input.file_path`, so operators can scope the
+guard:
+
+```yaml
+# Scan every write — most common starting point
+enforce:
+  tool: Write
+  pattern: ".*"
+  template: credential-leak-guard.ts.template
+```
+
+```yaml
+# Limit the guard to .env files only
+enforce:
+  tool: Write
+  pattern: '\.env$'
+  template: credential-leak-guard.ts.template
+```
+
+The path filter runs first; out-of-scope writes log
+`event: 'allow', reason: 'path out of scope'` and exit 0.
+
+### Tool dispatch — three memory entries, one template
+
+Because Claude Code fires PreToolUse per tool, scanning Edit AND
+Write AND MultiEdit needs three separate hooks. The same template
+handles all three input shapes — operator just writes three memory
+entries with the right `tool:`:
+
+```yaml
+# memory/feedback_no_credential_leaks_edit.md
+enforce:
+  tool: Edit
+  pattern: ".*"
+  hook: .claude/hooks/auto/credential-leak-guard-edit.ts
+  template: credential-leak-guard.ts.template
+  generated_from: memory/feedback_no_credential_leaks_edit.md
+```
+
+```yaml
+# memory/feedback_no_credential_leaks_write.md
+enforce:
+  tool: Write
+  pattern: ".*"
+  hook: .claude/hooks/auto/credential-leak-guard-write.ts
+  template: credential-leak-guard.ts.template
+  generated_from: memory/feedback_no_credential_leaks_write.md
+```
+
+(repeat for MultiEdit). Different hook paths — same template logic.
+
+### Redaction discipline
+
+The matched credential substring is **never** written to stderr or
+the audit JSONL. The audit entry carries the file path and the
+pattern source only:
+
+```json
+{"ts": "...", "event": "block", "file_path": "...", "pattern": "AKIA[0-9A-Z]{16}"}
+```
+
+Logging the matched substring would defeat the whole point of the
+guard. Same redaction principle as PR #15 R2 (block-on-match) and
+PR #16 (force-push-guard).
+
 ## What's still TODO (subsequent PRs)
-- **Phase 4.2 — credential-leak-guard**: Edit/Write content scanning for AWS keys, API tokens, .env markers
 - **Phase 5 — multi-language hook gen**: Python and shell hook generators for environments without bun.
 
 ## Why opt-in / why now

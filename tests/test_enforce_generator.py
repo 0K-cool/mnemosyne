@@ -511,5 +511,95 @@ class TestPhase41ForcePushGuard(unittest.TestCase):
         self.assertIn("--push-option", hook_source)
 
 
+class TestPhase42CredentialLeakGuard(unittest.TestCase):
+    """Phase 4.2: credential-leak-guard template + credential_patterns substitution."""
+
+    def _md(
+        self,
+        *,
+        tool: str = "Edit",
+        pattern: str = r".*",
+        credential_patterns: list[str] | None = None,
+    ) -> str:
+        # Single-quoted YAML so regex backslashes (\., \w, etc.) round-trip
+        # literally without YAML's double-quote escape rules tripping.
+        lines = [
+            "---",
+            "name: phase42-test",
+            "type: feedback",
+            "enforce:",
+            f"  tool: {tool}",
+            f"  pattern: '{pattern}'",
+            "  hook: .claude/hooks/auto/test.ts",
+            "  generated_from: memory/p42.md",
+            "  template: credential-leak-guard.ts.template",
+        ]
+        if credential_patterns is not None:
+            yaml_list = "[" + ", ".join(repr(p) for p in credential_patterns) + "]"
+            lines.append(f"  credential_patterns: {yaml_list}")
+        lines.extend(["---", "Body."])
+        return "\n".join(lines) + "\n"
+
+    def test_credential_leak_template_renders_default_patterns(self):
+        """Default credential pattern set is substituted when operator omits the field."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # Spot-check a few high-confidence patterns from the curated default.
+        self.assertIn("AKIA[0-9A-Z]{16}", hook_source)
+        self.assertIn("gh[pousr]_[A-Za-z0-9]{36}", hook_source)
+        self.assertIn("BEGIN [A-Z ]*PRIVATE KEY", hook_source)
+
+    def test_credential_leak_template_renders_custom_patterns(self):
+        """Operator-supplied credential_patterns override the default set."""
+        custom = [r"my-secret-[A-Z]{10}", r"INTERNAL_TOKEN_[0-9]+"]
+        md = self._md(credential_patterns=custom)
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("my-secret-[A-Z]{10}", hook_source)
+        self.assertIn("INTERNAL_TOKEN_[0-9]+", hook_source)
+        # Default set replaced — AKIA pattern should not appear.
+        self.assertNotIn("AKIA[0-9A-Z]", hook_source)
+
+    def test_credential_leak_template_compiles_under_bun_for_edit(self):
+        """Sanity: rendered template is syntactically valid TypeScript."""
+        md = self._md(tool="Edit")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        _assert_bun_build_clean(self, hook_source)
+
+    def test_credential_leak_template_compiles_under_bun_for_write(self):
+        """Same template handles Write tool — different input shape (`content`)."""
+        md = self._md(tool="Write")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        _assert_bun_build_clean(self, hook_source)
+        # Tool name substituted into the source.
+        self.assertIn("'Write'", hook_source)
+
+    def test_credential_leak_template_compiles_under_bun_for_multiedit(self):
+        """Same template handles MultiEdit — input shape is array of edits."""
+        md = self._md(tool="MultiEdit")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        _assert_bun_build_clean(self, hook_source)
+
+    def test_credential_leak_template_does_not_log_matched_substring(self):
+        """The matched secret must NEVER appear in stderr or audit JSONL.
+        Same redaction principle as PR #15 R2 (block-on-match) and PR #16
+        (force-push-guard)."""
+        md = self._md()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # The audit entry should carry pattern source only, not the match.
+        self.assertIn("event: 'block', file_path: filePath, pattern: patternSource", hook_source)
+        # The block banner explicitly says the secret is not echoed.
+        self.assertIn("matched secret is NOT included", hook_source)
+
+    def test_credential_leak_template_path_filter_uses_pattern(self):
+        """The schema's `pattern` field becomes the file_path scope filter
+        (e.g. `\\.env$` to limit the guard to .env files)."""
+        md = self._md(pattern=r"\.env$")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # The pattern lands as the FILE_PATH_FILTER constant — escaped via
+        # json.dumps so backslashes round-trip safely into TypeScript.
+        self.assertIn("FILE_PATH_FILTER", hook_source)
+        self.assertIn(r"\\.env$", hook_source)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

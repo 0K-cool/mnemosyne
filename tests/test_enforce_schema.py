@@ -319,5 +319,51 @@ class TestProtectedBranchesField(unittest.TestCase):
                 validate_enforce_block(self._base(protected_branches=bad))
 
 
+class TestCredentialPatternsField(unittest.TestCase):
+    """Phase 4.2: optional `credential_patterns` field for credential-leak-guard."""
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Edit",
+            "pattern": r".*",
+            "hook": ".claude/hooks/auto/g.ts",
+            "generated_from": "memory/x.md",
+            "template": "credential-leak-guard.ts.template",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_credential_patterns_optional_default_unset(self):
+        # Schema stays template-agnostic — generator applies the default
+        # at substitution time when this is absent. Asserting absence
+        # here pins that contract.
+        result = validate_enforce_block(self._base())
+        self.assertNotIn("credential_patterns", result)
+
+    def test_credential_patterns_passes_through_when_valid(self):
+        patterns = [r"AKIA[0-9A-Z]{16}", r"gh[pousr]_[A-Za-z0-9]{36}"]
+        result = validate_enforce_block(self._base(credential_patterns=patterns))
+        self.assertEqual(result["credential_patterns"], patterns)
+
+    def test_credential_patterns_must_be_a_list(self):
+        for bad in ("AKIA", 42, None, {"k": "v"}):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(credential_patterns=bad))
+
+    def test_credential_patterns_rejects_empty_list(self):
+        with self.assertRaises(EnforceValidationError):
+            validate_enforce_block(self._base(credential_patterns=[]))
+
+    def test_credential_patterns_rejects_non_string_element(self):
+        for bad in ([r"AKIA.*", 42], [None]):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(credential_patterns=bad))
+
+    def test_credential_patterns_rejects_invalid_regex(self):
+        # Each pattern must compile — unclosed character class fails.
+        with self.assertRaises(EnforceValidationError):
+            validate_enforce_block(self._base(credential_patterns=[r"[unclosed"]))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
