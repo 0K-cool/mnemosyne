@@ -129,9 +129,36 @@ When `inject_on_match: true`, the generated hook calls `console.log(JSON.stringi
 
 Why this matters: the recurring failure mode is "agent read the rule 5 hours ago and forgot." Re-injection at action time eliminates that gap. Even when the hook decides to allow (cache fresh, conditions satisfied), the agent gets a fresh reminder of why the rule exists.
 
+## Phase 4 — pattern library start (shipped: block-on-match primitive)
+
+Phase 4 starts the pattern library — a small collection of hook templates beyond the original `cr-prepush-guard.ts.template`. The first new shape is a generic block-on-match primitive plus an explicit-template-selection schema field so operators can opt into specific templates without relying on auto-dispatch.
+
+### New schema field
+
+```yaml
+enforce:
+  ... existing fields ...
+  template: block-on-match-guard.ts.template   # optional; basename only, from templates/hooks/
+```
+
+When `template` is set, the generator uses that template directly. When omitted, the existing `TEMPLATE_PATTERNS` substring dispatch decides (today: `git push` → cr-prepush-guard).
+
+Rejection cases:
+- empty / non-string → `EnforceValidationError`
+- absolute path / traversal / subdirectory → `EnforceValidationError`
+- valid basename but file missing → `GenerationError` at generation time (loud failure)
+
+### New template — `block-on-match-guard.ts.template`
+
+A minimal block-on-match primitive: pattern matches → block. No cache, no diff check, no allow path. Suitable for "always block" rules (rm -rf, force push to main, destructive SQL, etc.). About half the size of the cr-prepush template — fits the simpler use case cleanly.
+
+Like cr-prepush, supports `{{INJECT_BLOCK}}`/`{{INJECT_CALL}}` so Phase 2's `inject_on_match` works on this template too.
+
+Subsequent Phase 4.x PRs add tool-specific templates (force-push branch parser, Edit/Write content scanning for credentials, etc.) — each is non-trivial enough to warrant its own focused PR.
+
 ## What's still TODO (subsequent PRs)
-- **Phase 3 — violation telemetry → reinforcement loop**: append every hook firing (allow / block / skip-override) to a JSONL audit log. After N violations of the same rule, suggest escalation: auto-generate a tool hook, move to system prompt, escalate to CLAUDE.md.
-- **Phase 4 — pattern library**: 5-10 common rule shapes (destructive command, credential leak, force push, …) each with a dedicated template + a TEMPLATE_PATTERNS entry in the generator.
+- **Phase 4.1 — force-push-guard**: branch-aware blocking for `git push --force` to main / master
+- **Phase 4.2 — credential-leak-guard**: Edit/Write content scanning for AWS keys, API tokens, .env markers
 - **Phase 5 — multi-language hook gen**: Python and shell hook generators for environments without bun.
 
 ## Why opt-in / why now

@@ -207,11 +207,20 @@ def generate_hook(md: str, template_dir: Path) -> str:
 
     enforce = validate_enforce_block(meta["enforce"])
 
-    template_path = pick_template(
-        tool=enforce["tool"],
-        pattern=enforce["pattern"],
-        template_dir=template_dir,
-    )
+    # Phase 4: explicit `template` field overrides TEMPLATE_PATTERNS dispatch.
+    explicit = enforce.get("template")
+    if explicit:
+        template_path = template_dir / explicit
+        if not template_path.exists():
+            raise GenerationError(
+                f"explicit template {explicit!r} not found in {template_dir}"
+            )
+    else:
+        template_path = pick_template(
+            tool=enforce["tool"],
+            pattern=enforce["pattern"],
+            template_dir=template_dir,
+        )
     template_text = template_path.read_text(encoding="utf-8")
 
     inject_block, inject_call = _build_injection_snippet(enforce, body)

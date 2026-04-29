@@ -170,6 +170,26 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
                 f"repo_filter is not a valid regex: {exc}"
             ) from exc
 
+    # ---- Phase 4: optional explicit template selection ----
+
+    # template — optional basename of a template file. When present,
+    # the generator uses this template directly instead of consulting
+    # TEMPLATE_PATTERNS for tool/pattern-based dispatch.
+    if "template" in out:
+        candidate = out["template"]
+        if not isinstance(candidate, str) or not candidate.strip():
+            raise EnforceValidationError(
+                "template must be a non-empty string when present"
+            )
+        # Reject absolute paths, traversal, and subdirectory paths.
+        # Templates are basename-only — they live in the bundled
+        # template_dir. Subdirectory layouts can be added in a future
+        # phase if a clear use case emerges.
+        if _has_traversal(candidate) or "/" in candidate or "\\" in candidate:
+            raise EnforceValidationError(
+                f"template must be a basename only (no path separators): {candidate!r}"
+            )
+
     # ---- Phase 2: action-time rule re-injection fields ----
 
     # inject_on_match — strict bool; default False
