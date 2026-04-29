@@ -68,6 +68,14 @@ class EnforceValidationError(ValueError):
 
 _WINDOWS_DRIVE_LETTER_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
+# Phase 4.2: Python-only regex constructs that compile under `re` but
+# throw `SyntaxError` under JS `new RegExp(…)`. Used to gate
+# `credential_patterns` entries before they land in a generated hook.
+#   (?P<name>…)   Python named group        — JS uses (?<name>…)
+#   (?P=name)     Python named backref      — JS uses \k<name>
+#   (?aiLmsux…)   Python inline flag block  — JS only honours i/m/s/d/u/y/v
+_PY_ONLY_REGEX_FORMS = re.compile(r"\(\?P[<=]|\(\?[aiLmsux]+[):]")
+
 
 def _has_traversal(path: str) -> bool:
     r"""True if a relative path contains traversal segments or is absolute.
@@ -224,6 +232,58 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
             f"inject_token_budget must be ≤ {MAX_INJECT_TOKEN_BUDGET}, got {raw_budget}"
         )
     out["inject_token_budget"] = raw_budget
+
+    # ---- Phase 4.2: credential-leak-guard parameters ----
+
+    # credential_patterns — optional list of non-empty regex strings.
+    # Each must compile under Python re AND be portable to JavaScript
+    # RegExp (since the rendered hook compiles them via `new RegExp()`).
+    # Consumed by credential-leak-guard.ts.template; the generator
+    # applies a curated default when this field is omitted, so schema
+    # only validates shape when set explicitly.
+    if "credential_patterns" in out:
+        candidate = out["credential_patterns"]
+        if not isinstance(candidate, list):
+            raise EnforceValidationError(
+                f"credential_patterns must be a list, got {type(candidate).__name__}"
+            )
+        if not candidate:
+            raise EnforceValidationError(
+                "credential_patterns must be non-empty when present"
+            )
+        for i, item in enumerate(candidate):
+            if not isinstance(item, str) or not item.strip():
+                raise EnforceValidationError(
+                    f"credential_patterns[{i}] must be a non-empty string, got {item!r}"
+                )
+            try:
+                re.compile(item)
+            except re.error as exc:
+                raise EnforceValidationError(
+                    f"credential_patterns[{i}] is not a valid regex: {exc}"
+                ) from exc
+            # Reject the most common Python-only regex constructs that
+            # compile under `re` but throw under JS `new RegExp()`. We
+            # don't try to be exhaustive (a full validator would need
+            # a JS runtime), but we catch the highest-frequency
+            # footguns: Python named groups `(?P<name>…)` /
+            # backreferences `(?P=name)`, and Python inline flags
+            # `(?aiLmsux:…)` (JS only honours i/m/s/d/u/y/v).
+            #
+            # Note: the inverse problem (JS-only syntax like `(?<name>…)`
+            # named groups) is caught by the Python re.compile above —
+            # Python rejects that form because it expects `(?P<name>…)`.
+            # The portable subset documented for credential_patterns is
+            # therefore the intersection: no named groups, no Python
+            # inline flag blocks. Use unnamed `(…)` groups for
+            # cross-syntax patterns.
+            if _PY_ONLY_REGEX_FORMS.search(item):
+                raise EnforceValidationError(
+                    f"credential_patterns[{i}] uses Python-only regex syntax that "
+                    f"will fail under JS RegExp at runtime: {item!r}. Stick to the "
+                    f"JS-portable subset — use unnamed `(…)` groups instead of "
+                    f"the Python `(?P<name>…)` form."
+                )
 
     # ---- Phase 4.1: force-push-guard parameters ----
 

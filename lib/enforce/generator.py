@@ -48,6 +48,22 @@ TEMPLATE_PATTERNS: tuple[tuple[str, str, str], ...] = (
     ("Bash", "git push", "cr-prepush-guard.ts.template"),
 )
 
+# Phase 4.2: curated default credential patterns for credential-leak-guard.
+# Conservative list — only high-confidence formats to keep the false-positive
+# rate low. AWS secret keys (40-char base64) are intentionally excluded —
+# they collide with too many legitimate hashes / build artifacts.
+# Operators extend via `enforce.credential_patterns:` in their memory entry.
+DEFAULT_CREDENTIAL_PATTERNS: tuple[str, ...] = (
+    r"AKIA[0-9A-Z]{16}",                              # AWS access key id
+    r"github_pat_[A-Za-z0-9_]{82}",                   # GitHub fine-grained PAT
+    r"gh[pousr]_[A-Za-z0-9]{36}",                     # GitHub classic tokens
+    r"xox[abprs]-[A-Za-z0-9-]{10,}",                  # Slack tokens
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----",            # PEM private key headers
+    r"(sk|pk|rk)_live_[A-Za-z0-9]{24,}",              # Stripe live keys
+    r"npm_[A-Za-z0-9]{36}",                           # npm publish tokens
+    r"glpat-[A-Za-z0-9_-]{20,}",                      # GitLab PATs
+)
+
 
 class GenerationError(RuntimeError):
     """Raised when a memory entry cannot be turned into a hook."""
@@ -257,6 +273,12 @@ def generate_hook(md: str, template_dir: Path) -> str:
         # Phase 4.1: default applied here so the schema stays template-agnostic.
         "PROTECTED_BRANCHES_JSON": json.dumps(
             enforce.get("protected_branches", ["main", "master"])
+        ),
+        # Phase 4.2: curated default credential pattern list. Conservative —
+        # only high-confidence patterns to keep the FP rate low. Operators
+        # extend via enforce.credential_patterns: in their memory entry.
+        "CREDENTIAL_PATTERNS_JSON": json.dumps(
+            enforce.get("credential_patterns", DEFAULT_CREDENTIAL_PATTERNS)
         ),
     }
 
