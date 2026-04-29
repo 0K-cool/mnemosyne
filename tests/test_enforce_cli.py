@@ -213,6 +213,30 @@ class TestEnforceCli(unittest.TestCase):
         self.assertIn("orphan.ts", combined)
         self.assertIn("orphan", combined.lower())
 
+    def test_duplicate_hook_targets_rejected(self):
+        """Two memory entries pointing at the same output hook fail loudly."""
+        # Both entries declare the same `hook` path → second must be rejected.
+        rule_a = CR_PREPUSH_RULE  # hook: .claude/hooks/auto/cr-prepush.ts
+        rule_b = CR_PREPUSH_RULE.replace(
+            "name: cr-prepush-rule",
+            "name: cr-prepush-rule-clone",
+        )
+        self._write_memory("a.md", rule_a)
+        self._write_memory("b.md", rule_b)
+
+        rc, _, err = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+
+        # Exit non-zero because one entry was rejected
+        self.assertNotEqual(rc, 0)
+        # The collision is reported clearly
+        self.assertIn("duplicate hook target", err)
+        # The first entry's hook still exists
+        self.assertTrue((self.output_dir / "cr-prepush.ts").exists())
+
     def test_rule_flag_processes_single_file(self):
         self._write_memory("cr.md", CR_PREPUSH_RULE)
         # Plain entry that would normally be skipped — but with --rule we

@@ -129,6 +129,7 @@ def _process_one(
     memory_path: Path,
     output_dir: Path,
     template_dir: Path,
+    reserved_outputs: set[Path],
     *,
     dry_run: bool,
     force: bool,
@@ -171,7 +172,20 @@ def _process_one(
         rel_under_prefix = Path(hook_relpath.name)
     out_path = output_dir / rel_under_prefix
 
+    # Reject duplicate hook targets — two memory entries pointing at the
+    # same output path silently overwriting each other is a footgun.
+    # resolve(strict=False) normalises the path (incl. symlinks like
+    # /tmp → /private/tmp on macOS) without requiring the file to exist.
+    out_resolved = out_path.resolve(strict=False)
+    if out_resolved in reserved_outputs:
+        return (
+            False,
+            f"{memory_path.name}: duplicate hook target {out_path} — already produced by another memory entry",
+            out_path,
+        )
+
     if dry_run:
+        reserved_outputs.add(out_resolved)
         _log.info("[dry-run] would write %s (%d bytes)", out_path, len(hook_source))
         return True, None, out_path
 
@@ -181,6 +195,7 @@ def _process_one(
         try:
             existing = out_path.read_text(encoding="utf-8")
             if _content_equivalent(existing, hook_source):
+                reserved_outputs.add(out_resolved)
                 _log.debug("unchanged: %s (skipping write)", out_path)
                 return True, None, out_path
         except OSError:
@@ -194,6 +209,7 @@ def _process_one(
         # is required because the hook is invoked from contexts where the
         # effective uid may differ. nosec: intentional + matches convention.
         os.chmod(out_path, 0o755)  # nosec B103  # nosemgrep
+        reserved_outputs.add(out_resolved)
         _log.info("wrote %s", out_path)
     except OSError as exc:
         return False, f"{memory_path.name}: write failed: {exc}", out_path
@@ -260,12 +276,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     failures = 0
     eligible = 0
     produced: set[Path] = set()
+    # Tracks resolved output paths claimed by an entry processed earlier in
+    # this run. Used by _process_one to detect duplicate-target collisions.
+    reserved_outputs: set[Path] = set()
 
     for mf in memory_files:
         ok, err, out_path = _process_one(
             mf,
             args.output_dir,
             template_dir,
+            reserved_outputs,
             dry_run=args.dry_run,
             force=args.force,
         )
