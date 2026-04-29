@@ -17,12 +17,14 @@ output/product-ip/mnemosyne/2026-04-29-v2-enforcement-architecture.md
 in PAI for the full architectural rationale.
 """
 
-from .schema import EnforceValidationError, validate_enforce_block
+from .cli import main as cli_main
 from .generator import GenerationError, generate_hook, parse_memory_entry, pick_template
+from .schema import EnforceValidationError, validate_enforce_block
 
 __all__ = [
     "EnforceValidationError",
     "GenerationError",
+    "cli_main",
     "generate_hook",
     "parse_memory_entry",
     "pick_template",
