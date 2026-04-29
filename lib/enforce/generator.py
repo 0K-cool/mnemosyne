@@ -146,9 +146,45 @@ def _render(template_text: str, params: dict[str, str]) -> str:
     return rendered
 
 
+def _build_injection_snippet(enforce: dict[str, Any], body: str) -> tuple[str, str]:
+    """Build the TS code snippets that the template substitutes when
+    inject_on_match is enabled.
+
+    Returns ``(inject_block, inject_call)``:
+      - ``inject_block``: top-level TS lines (constant + function), or empty
+      - ``inject_call``: the line inside main() that triggers re-injection,
+        or empty when injection is disabled
+
+    The injected text is capped at ~4 chars/token so context spend stays
+    predictable for operators tuning ``inject_token_budget``.
+    """
+    if not enforce.get("inject_on_match"):
+        return "", ""
+
+    text = enforce.get("inject_text") or body.strip()
+    if not text:
+        # Defensive: if both inject_text and body are empty, no point emitting
+        # an empty additionalContext. Treat as disabled.
+        return "", ""
+
+    char_budget = enforce["inject_token_budget"] * 4
+    if len(text) > char_budget:
+        text = text[:char_budget].rstrip() + "…[truncated]"
+
+    text_json = json.dumps(text)
+    inject_block = (
+        f"\nconst INJECT_TEXT = {text_json};\n"
+        "function emitInjection(): void {\n"
+        "  console.log(JSON.stringify({ additionalContext: INJECT_TEXT }));\n"
+        "}\n"
+    )
+    inject_call = "  emitInjection();\n"
+    return inject_block, inject_call
+
+
 def generate_hook(md: str, template_dir: Path) -> str:
     """End-to-end: memory entry markdown → hook source string."""
-    meta, _ = parse_memory_entry(md)
+    meta, body = parse_memory_entry(md)
 
     if "enforce" not in meta:
         raise GenerationError(
@@ -163,6 +199,8 @@ def generate_hook(md: str, template_dir: Path) -> str:
         template_dir=template_dir,
     )
     template_text = template_path.read_text(encoding="utf-8")
+
+    inject_block, inject_call = _build_injection_snippet(enforce, body)
 
     # Build the substitution dict. Use json.dumps for the regex pattern
     # so any quotes / backslashes survive the round-trip into TypeScript
@@ -187,6 +225,8 @@ def generate_hook(md: str, template_dir: Path) -> str:
                 datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             )
         ),
+        "INJECT_BLOCK": inject_block,
+        "INJECT_CALL": inject_call,
     }
 
     return _render(template_text, params)
