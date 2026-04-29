@@ -54,6 +54,13 @@ DEFAULT_FRESHNESS_SECS = 1800  # 30 minutes
 HOOK_PATH_PREFIX = ".claude/hooks/auto/"
 REQUIRED_FIELDS: tuple[str, ...] = ("tool", "pattern", "hook", "generated_from")
 
+# Phase 2 — action-time rule re-injection.
+# Re-injected text is capped to keep context spend predictable. 1024 tokens
+# is a hard upper bound; rough char-budget at generation time is
+# 4 * inject_token_budget chars per the standard tokenizer estimate.
+DEFAULT_INJECT_TOKEN_BUDGET = 256
+MAX_INJECT_TOKEN_BUDGET = 1024
+
 
 class EnforceValidationError(ValueError):
     """Raised when an `enforce` block is malformed or unsafe."""
@@ -162,5 +169,40 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
             raise EnforceValidationError(
                 f"repo_filter is not a valid regex: {exc}"
             ) from exc
+
+    # ---- Phase 2: action-time rule re-injection fields ----
+
+    # inject_on_match — strict bool; default False
+    raw_inject = out.get("inject_on_match", False)
+    if not isinstance(raw_inject, bool):
+        raise EnforceValidationError(
+            f"inject_on_match must be a bool, got {type(raw_inject).__name__}"
+        )
+    out["inject_on_match"] = raw_inject
+
+    # inject_text — optional non-empty string; falls back to memory body at
+    # generation time when omitted.
+    if "inject_text" in out:
+        candidate = out["inject_text"]
+        if not isinstance(candidate, str) or not candidate.strip():
+            raise EnforceValidationError(
+                "inject_text must be a non-empty string when present"
+            )
+
+    # inject_token_budget — positive int, capped at MAX_INJECT_TOKEN_BUDGET
+    raw_budget = out.get("inject_token_budget", DEFAULT_INJECT_TOKEN_BUDGET)
+    if isinstance(raw_budget, bool) or not isinstance(raw_budget, int):
+        raise EnforceValidationError(
+            f"inject_token_budget must be a positive int, got {type(raw_budget).__name__}"
+        )
+    if raw_budget <= 0:
+        raise EnforceValidationError(
+            f"inject_token_budget must be > 0, got {raw_budget}"
+        )
+    if raw_budget > MAX_INJECT_TOKEN_BUDGET:
+        raise EnforceValidationError(
+            f"inject_token_budget must be ≤ {MAX_INJECT_TOKEN_BUDGET}, got {raw_budget}"
+        )
+    out["inject_token_budget"] = raw_budget
 
     return out

@@ -175,5 +175,55 @@ class TestValidateEnforceBlockRejection(unittest.TestCase):
                 validate_enforce_block(bad)
 
 
+class TestInjectionFields(unittest.TestCase):
+    """Phase 2: action-time rule re-injection schema fields."""
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"git push",
+            "hook": ".claude/hooks/auto/g.ts",
+            "generated_from": "memory/x.md",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_inject_on_match_default_false(self):
+        result = validate_enforce_block(self._base())
+        self.assertFalse(result["inject_on_match"])
+
+    def test_inject_on_match_must_be_bool(self):
+        for bad in ("true", 1, 0, None):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(inject_on_match=bad))
+
+    def test_inject_on_match_true_passes(self):
+        result = validate_enforce_block(self._base(inject_on_match=True))
+        self.assertTrue(result["inject_on_match"])
+
+    def test_inject_text_must_be_non_empty_string_when_present(self):
+        for bad in ("", "   \n", 42, None, [], {}):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(inject_text=bad))
+
+    def test_inject_text_passes_through_when_valid(self):
+        text = "Reminder: never run destructive commands without explicit approval."
+        result = validate_enforce_block(self._base(inject_text=text))
+        self.assertEqual(result["inject_text"], text)
+
+    def test_inject_token_budget_default_256(self):
+        result = validate_enforce_block(self._base())
+        self.assertEqual(result["inject_token_budget"], 256)
+
+    def test_inject_token_budget_must_be_positive_int_within_cap(self):
+        for bad in (0, -1, "256", 256.5, None, True, False, 1025):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(inject_token_budget=bad))
+
+    def test_inject_token_budget_at_max(self):
+        result = validate_enforce_block(self._base(inject_token_budget=1024))
+        self.assertEqual(result["inject_token_budget"], 1024)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

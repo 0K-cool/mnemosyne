@@ -110,8 +110,26 @@ Behavior contract (locked by `tests/test_enforce_cli.py`):
 
 The `PYTHONPATH=lib` prefix is needed until the pyproject.toml restructure lands (issue #10).
 
+## Phase 2 — action-time rule re-injection (shipped)
+
+Before high-stakes tool calls match the rule's pattern, the generated hook can re-inject the rule's text into the agent's context as fresh content. Closes the temporal gap between when the rule was first read and when the action is being decided.
+
+The `enforce` block gains three optional fields:
+
+```yaml
+enforce:
+  ... existing fields ...
+  inject_on_match: true              # default false; emit additionalContext on match
+  inject_text: |                     # optional override; falls back to memory body
+    Reminder text shown at action time.
+  inject_token_budget: 256           # default 256, max 1024 — caps re-injection size
+```
+
+When `inject_on_match: true`, the generated hook calls `console.log(JSON.stringify({ additionalContext: <text> }))` immediately after the pattern match, before any allow/block decision. Claude Code consumes the JSON and surfaces the text to the agent's next response. The text is capped at `inject_token_budget * 4` characters (rough byte-to-token estimate); excess is truncated with an ellipsis marker.
+
+Why this matters: the recurring failure mode is "agent read the rule 5 hours ago and forgot." Re-injection at action time eliminates that gap. Even when the hook decides to allow (cache fresh, conditions satisfied), the agent gets a fresh reminder of why the rule exists.
+
 ## What's still TODO (subsequent PRs)
-- **Phase 2 — action-time rule re-injection**: a PostToolUse-side companion that, before high-stakes tool calls, re-injects the rule text into context as fresh content. Addresses the "I read the rule 5 hours ago and forgot" failure mode by removing the temporal gap between recall and decision.
 - **Phase 3 — violation telemetry → reinforcement loop**: append every hook firing (allow / block / skip-override) to a JSONL audit log. After N violations of the same rule, suggest escalation: auto-generate a tool hook, move to system prompt, escalate to CLAUDE.md.
 - **Phase 4 — pattern library**: 5-10 common rule shapes (destructive command, credential leak, force push, …) each with a dedicated template + a TEMPLATE_PATTERNS entry in the generator.
 - **Phase 5 — multi-language hook gen**: Python and shell hook generators for environments without bun.

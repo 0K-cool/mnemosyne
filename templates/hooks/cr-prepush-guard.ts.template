@@ -33,6 +33,7 @@ const PATTERN = new RegExp({{PATTERN_JSON}});
 const REPO_FILTER_RAW = {{REPO_FILTER_JSON}};
 const REPO_FILTER = REPO_FILTER_RAW ? new RegExp(REPO_FILTER_RAW, 'i') : null;
 
+{{INJECT_BLOCK}}
 const CODE_FILE_PATTERNS: RegExp[] = [
   /\.(ts|tsx|js|jsx|mjs|cjs)$/,
   /\.py$/,
@@ -128,6 +129,7 @@ function main(): void {
   if (!PATTERN.test(cmd)) process.exit(0);
   if (/--dry-run\b/.test(cmd)) process.exit(0);
 
+{{INJECT_CALL}}
   const cwd = data.cwd || process.cwd();
   if (gitOut(cwd, 'rev-parse', '--git-dir') === '') process.exit(0);
 
