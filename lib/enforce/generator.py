@@ -49,21 +49,35 @@ class GenerationError(RuntimeError):
     """Raised when a memory entry cannot be turned into a hook."""
 
 
+# Match a YAML frontmatter block: opening `---` on a line by itself,
+# then content, then a closing `---` on a line by itself. Anchored at
+# start of file. DOTALL so `.` matches newlines inside the body capture.
+_FRONTMATTER_RE = re.compile(
+    r"\A---\s*\n(.*?)\n---\s*(?:\n(.*))?\Z",
+    re.DOTALL,
+)
+
+
 def parse_memory_entry(md: str) -> tuple[dict[str, Any], str]:
     """Split a markdown file with YAML frontmatter into (meta, body).
 
-    Frontmatter is the block between the first two `---` lines. Returns
-    a (meta_dict, body_string) tuple. Raises GenerationError if the file
+    Frontmatter is the block between an opening `---` on its own line at
+    the start of the file and a closing `---` on its own line. A `---`
+    string elsewhere (e.g. inside the YAML or the body) is left alone.
+    Returns (meta_dict, body_string). Raises GenerationError if the file
     has no frontmatter — every memory entry must have one.
     """
-    if not md.startswith("---"):
-        raise GenerationError("memory entry has no YAML frontmatter")
+    match = _FRONTMATTER_RE.match(md)
+    if not match:
+        if not md.startswith("---"):
+            raise GenerationError("memory entry has no YAML frontmatter")
+        raise GenerationError(
+            "frontmatter is not properly closed with '---' on its own line"
+        )
 
-    parts = md.split("---", 2)
-    if len(parts) < 3:
-        raise GenerationError("frontmatter is not properly closed with '---'")
+    frontmatter_text = match.group(1)
+    body = match.group(2) or ""
 
-    _, frontmatter_text, body = parts
     try:
         meta = yaml.safe_load(frontmatter_text) or {}
     except yaml.YAMLError as exc:
@@ -72,7 +86,7 @@ def parse_memory_entry(md: str) -> tuple[dict[str, Any], str]:
     if not isinstance(meta, dict):
         raise GenerationError("frontmatter must parse to a mapping")
 
-    return meta, body.lstrip("\n")
+    return meta, body
 
 
 def pick_template(tool: str, pattern: str, template_dir: Path) -> Path:

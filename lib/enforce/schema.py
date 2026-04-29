@@ -59,9 +59,21 @@ class EnforceValidationError(ValueError):
     """Raised when an `enforce` block is malformed or unsafe."""
 
 
+_WINDOWS_DRIVE_LETTER_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
 def _has_traversal(path: str) -> bool:
-    """True if a relative path contains traversal segments or is absolute."""
+    r"""True if a relative path contains traversal segments or is absolute.
+
+    Rejects:
+      - POSIX absolute paths (``/etc/...``)
+      - UNC / Windows root paths (``\\server\share``, ``\...``)
+      - Windows drive-letter absolutes (``C:\...``, ``D:/...``)
+      - Any segment of ``.`` or ``..`` (traversal)
+    """
     if path.startswith(("/", "\\")):
+        return True
+    if _WINDOWS_DRIVE_LETTER_RE.match(path):
         return True
     parts = re.split(r"[\\/]+", path)
     return any(p in ("..", ".") for p in parts if p)

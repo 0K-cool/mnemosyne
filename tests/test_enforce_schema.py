@@ -127,7 +127,14 @@ class TestValidateEnforceBlockRejection(unittest.TestCase):
 
     def test_path_traversal_in_hook_path_rejected(self):
         """Hook path must not escape the repo root via traversal."""
-        for bad in ("../../etc/passwd.ts", "..\\..\\windows.ts", "/etc/passwd.ts"):
+        bad_paths = (
+            "../../etc/passwd.ts",
+            "..\\..\\windows.ts",
+            "/etc/passwd.ts",
+            "C:\\Windows\\Temp\\hook.ts",  # Windows drive-letter absolute
+            "D:/tmp/hook.ts",              # forward-slash drive form
+        )
+        for bad in bad_paths:
             raw = {
                 "tool": "Bash",
                 "pattern": r"x",
