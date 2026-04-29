@@ -333,5 +333,63 @@ class TestPhase2Injection(unittest.TestCase):
         _assert_bun_build_clean(self, hook_source)
 
 
+class TestPhase4PatternLibrary(unittest.TestCase):
+    """Phase 4: generator dispatches via explicit `template` field + new block-on-match primitive."""
+
+    def _md(self, *, pattern: str, template: str | None = None) -> str:
+        lines = [
+            "---",
+            "name: phase4-test",
+            "type: feedback",
+            "enforce:",
+            "  tool: Bash",
+            f'  pattern: "{pattern}"',
+            "  hook: .claude/hooks/auto/test.ts",
+            "  generated_from: memory/p4.md",
+        ]
+        if template:
+            lines.append(f"  template: {template}")
+        lines.extend(["---", "Body."])
+        return "\n".join(lines) + "\n"
+
+    def test_explicit_template_field_overrides_dispatch(self):
+        """When enforce.template is set, that template is used regardless of pattern."""
+        # `git push` would normally pick cr-prepush-guard via TEMPLATE_PATTERNS,
+        # but explicit override wins.
+        md = self._md(pattern="git push -u origin", template="block-on-match-guard.ts.template")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # block-on-match doesn't have CR-specific markers
+        self.assertNotIn("CR PRE-PUSH GUARD", hook_source)
+        # but does contain the block-on-match marker
+        self.assertIn("BLOCK-ON-MATCH GUARD", hook_source)
+
+    def test_block_on_match_template_renders(self):
+        """The new primitive template renders for an arbitrary pattern."""
+        md = self._md(pattern=r"rm -rf /", template="block-on-match-guard.ts.template")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("AUTO-GENERATED", hook_source)
+        self.assertIn("BLOCK-ON-MATCH GUARD", hook_source)
+        self.assertIn("rm -rf", hook_source)
+
+    def test_block_on_match_template_compiles_under_bun(self):
+        """Sanity: the new primitive produces syntactically valid TypeScript."""
+        md = self._md(pattern=r"rm -rf /", template="block-on-match-guard.ts.template")
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        _assert_bun_build_clean(self, hook_source)
+
+    def test_explicit_template_with_unknown_filename_raises(self):
+        """If the user names a template that doesn't exist, fail loudly."""
+        md = self._md(pattern="anything", template="does-not-exist.ts.template")
+        with self.assertRaises(GenerationError):
+            generate_hook(md, template_dir=TEMPLATE_DIR)
+
+    def test_no_template_field_falls_back_to_pattern_dispatch(self):
+        """Without enforce.template, TEMPLATE_PATTERNS is consulted (existing behaviour)."""
+        # 'git push' pattern → cr-prepush-guard (existing dispatch)
+        md = self._md(pattern="git push -u origin", template=None)
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("CR PRE-PUSH GUARD", hook_source)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -225,5 +225,44 @@ class TestInjectionFields(unittest.TestCase):
         self.assertEqual(result["inject_token_budget"], 1024)
 
 
+class TestExplicitTemplateField(unittest.TestCase):
+    """Phase 4: optional `template` field overrides TEMPLATE_PATTERNS dispatch."""
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"rm -rf",
+            "hook": ".claude/hooks/auto/g.ts",
+            "generated_from": "memory/x.md",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_template_field_optional_default_unset(self):
+        result = validate_enforce_block(self._base())
+        # Not set when the user doesn't provide one — generator falls through
+        # to TEMPLATE_PATTERNS dispatch.
+        self.assertNotIn("template", result)
+
+    def test_template_field_passes_through_when_valid(self):
+        result = validate_enforce_block(self._base(template="block-on-match-guard.ts.template"))
+        self.assertEqual(result["template"], "block-on-match-guard.ts.template")
+
+    def test_template_field_must_be_non_empty_string(self):
+        for bad in ("", "   ", 42, None, [], {}):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(template=bad))
+
+    def test_template_field_rejects_path_traversal(self):
+        for bad in ("../escape.template", "/etc/passwd.template", "..\\evil.template"):
+            with self.assertRaises(EnforceValidationError, msg=f"path: {bad!r}"):
+                validate_enforce_block(self._base(template=bad))
+
+    def test_template_field_rejects_subdirectory_paths(self):
+        """Template names are basename-only; subdirectories are out of scope."""
+        with self.assertRaises(EnforceValidationError):
+            validate_enforce_block(self._base(template="sub/x.template"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
