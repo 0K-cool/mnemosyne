@@ -162,8 +162,13 @@ def _process_one(
     # Schema guarantees it starts with HOOK_PATH_PREFIX. Preserve any
     # nested subpath (e.g. `.claude/hooks/auto/sub/x.ts` keeps `sub/x.ts`)
     # so multiple rules can group hooks without name collisions.
-    hook_relpath = meta["enforce"]["hook"]
-    rel_under_prefix = hook_relpath[len(HOOK_PATH_PREFIX):] if hook_relpath.startswith(HOOK_PATH_PREFIX) else Path(hook_relpath).name
+    hook_relpath = Path(meta["enforce"]["hook"])
+    try:
+        rel_under_prefix = hook_relpath.relative_to(HOOK_PATH_PREFIX)
+    except ValueError:
+        # Schema-validated paths always start with HOOK_PATH_PREFIX, but be
+        # defensive for direct generator users bypassing schema.
+        rel_under_prefix = Path(hook_relpath.name)
     out_path = output_dir / rel_under_prefix
 
     if dry_run:
@@ -198,6 +203,15 @@ def _process_one(
 
 # Sidecar files written next to a generated hook (audit logs). Not hooks.
 _AUDIT_SIDECAR_SUFFIXES: tuple[str, ...] = (".audit.jsonl", ".audit.json")
+
+
+def _relative_to_output(p: Path, output_dir: Path) -> str:
+    """Render `p` as a string path relative to `output_dir` when possible.
+    Falls back to basename if `p` is outside `output_dir` (defensive)."""
+    try:
+        return str(p.relative_to(output_dir))
+    except ValueError:
+        return p.name
 
 
 def _report_orphans(output_dir: Path, produced: set[Path]) -> list[Path]:
@@ -263,10 +277,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         else:
             failures += 1
             # _process_one's contract: when ok is False, err is always set.
-            # Use a defensive fallback rather than assert (Bandit B101 — assert
-            # can be stripped under -O so production code shouldn't rely on it).
-            # Use print() for user-facing errors so they respect the current
-            # sys.stderr stream (cooperates with redirect_stderr in tests).
+            # Defensive `or` fallback ensures we never print a None.
+            # print() rather than logging so output respects sys.stderr in
+            # tests (cooperates with redirect_stderr).
             print(f"ERROR: {err or '<unknown failure>'}", file=sys.stderr)
 
     # Orphan report — only meaningful when scanning a full memory dir, not
@@ -281,14 +294,17 @@ def main(argv: Optional[list[str]] = None) -> int:
                 file=sys.stderr,
             )
             for o in orphans:
-                print(f"  orphan: {o.name}", file=sys.stderr)
+                # Show the path relative to output_dir so nested orphans
+                # (e.g. sub/foo.ts) stay distinguishable from a flat foo.ts.
+                rel = _relative_to_output(o, args.output_dir)
+                print(f"  orphan: {rel}", file=sys.stderr)
             print(
                 "orphans are NOT auto-deleted; review and rm by hand if obsolete",
                 file=sys.stderr,
             )
 
     if args.dry_run:
-        plan = [str(p.name) for p in sorted(produced)]
+        plan = sorted(_relative_to_output(p, args.output_dir) for p in produced)
         if plan:
             print(f"dry-run: would generate {len(plan)} hook(s): {', '.join(plan)}")
         else:
