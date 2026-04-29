@@ -24,7 +24,7 @@ interface HookInput {
 const PAI_DIR =
   process.env.PAI_DIR ||
   join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const AUDIT_PATH = join(PAI_DIR, 'logs', '{{HOOK_PATH}}'.replace(/^.+\//, '') + '.audit.jsonl');
+const AUDIT_PATH = join(PAI_DIR, '{{AUDIT_LOG_PATH}}');
 const PATTERN = new RegExp({{PATTERN_JSON}});
 const REPO_FILTER_RAW = {{REPO_FILTER_JSON}};
 const REPO_FILTER = REPO_FILTER_RAW ? new RegExp(REPO_FILTER_RAW, 'i') : null;
@@ -92,7 +92,7 @@ function main(): void {
   }
 
 {{INJECT_CALL}}
-  emitBlock(`pattern matched: ${cmd.slice(0, 80)}`);
+  emitBlock('pattern matched');
 }
 
 main();
