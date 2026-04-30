@@ -1,6 +1,6 @@
 # Mnemosyne v2 — Memory-Driven Enforcement Layer (design)
 
-> **Status:** v2.0 alpha — Phases 1, 1.2, 2, 3, 4, 4.1, and 4.2 shipped. Phase 5 (multi-language hook generators) still queued.
+> **Status:** v2.0 alpha — Phases 1, 1.2, 2, 3, 4, 4.1, 4.2, and 5 shipped. v2 alpha is feature-complete; subsequent work is hardening + porting templates to non-TS languages.
 
 ## The gap v2 closes
 
@@ -395,8 +395,98 @@ Logging the matched substring would defeat the whole point of the
 guard. Same redaction principle as PR #15 R2 (block-on-match) and
 PR #16 (force-push-guard).
 
+## Phase 5 — multi-language hook generators (shipped)
+
+Phase 5 lifts the Mnemosyne v2 alpha out of "TypeScript-only." Operators
+can now choose the language the generated hook is emitted in via a new
+schema field:
+
+```yaml
+enforce:
+  ... existing fields ...
+  language: ts                               # one of: ts | py | sh; default ts
+```
+
+Default is `ts`, so every existing memory entry keeps generating
+TypeScript hooks unchanged.
+
+### How dispatch works
+
+The `TEMPLATE_PATTERNS` table is canonical TypeScript. When an
+operator sets `language: py` (or `sh`), `pick_template` swaps the
+suffix:
+
+```text
+block-on-match-guard.ts.template  →  block-on-match-guard.py.template
+```
+
+If the requested port doesn't exist, the generator fails loudly:
+
+```text
+no 'py' port of 'force-push-guard.ts.template' available
+(looked for 'force-push-guard.py.template'); set explicit
+`template:` or use language: ts
+```
+
+Silent fallback to the TS file would emit a `bun`-shebanged script in
+a Python deployment — the wrong runtime altogether.
+
+### What ships in v2 alpha
+
+| Template | ts | py | sh |
+|---|---|---|---|
+| `cr-prepush-guard` | ✅ | — | — |
+| `block-on-match-guard` | ✅ | ✅ | ✅ |
+| `force-push-guard` | ✅ | — | — |
+| `credential-leak-guard` | ✅ | — | — |
+
+The block-on-match primitive is the first template ported to all
+three languages — it's the simplest and most general, so it sets the
+porting pattern for the rest. Tool-aware templates (force-push,
+credential-leak) and the cr-prepush guard stay TS-only in this PR;
+their Python / shell ports are tracked as Phase 5.x follow-ups
+(each is non-trivial — `git rev-parse` shelling, multi-tool input
+shapes, etc.).
+
+### Cross-field constraint
+
+Phase 2 re-injection (`inject_on_match: true`) currently emits only
+TypeScript glue. The schema rejects the combo with `language: py /
+sh` to avoid emitting a broken hook:
+
+```text
+inject_on_match: true is only supported with language: ts in v2.
+Re-injection ports for py / sh are tracked as a Phase 5.x follow-up.
+```
+
+### Shell port specifics
+
+The shell template requires `jq` for JSON parsing — pure POSIX shell
+JSON handling is impractical and the silent failure modes are too
+risky for an enforcement hook. The template checks for `jq` at
+startup and falls through (audit-only allow) if it's missing,
+emitting a clear `stderr` message pointing operators at `language: ts`
+or `py` as alternatives.
+
+Pattern strings are substituted via bash ANSI-C quoting (`$'...'`)
+so regex metacharacters like `$`, backticks, and `[]` round-trip
+without shell-level mangling. The generator escapes `\` and `'`
+only — `$`/backtick are literal inside `$'...'`.
+
+### Python port specifics
+
+Stdlib-only — no third-party deps. JSON via `json`, regex via `re`,
+filesystem via `pathlib`. Same `PATTERN_JSON` substitution as TS
+(JSON-quoted strings are also valid Python string literals for the
+regex character set).
+
 ## What's still TODO (subsequent PRs)
-- **Phase 5 — multi-language hook gen**: Python and shell hook generators for environments without bun.
+- **Phase 5.1+ — port additional templates to py / sh**: cr-prepush
+  (git diff + cache logic), force-push-guard (`git rev-parse`
+  shelling), credential-leak-guard (multi-tool dispatch). Each is
+  its own focused PR.
+- **Phase 5.x — re-injection ports**: lift `inject_on_match` to the
+  py / sh templates so Phase 2 isn't TS-only.
 
 ## Why opt-in / why now
 

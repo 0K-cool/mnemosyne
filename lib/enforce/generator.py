@@ -109,17 +109,48 @@ def parse_memory_entry(md: str) -> tuple[dict[str, Any], str]:
     return meta, body
 
 
-def pick_template(tool: str, pattern: str, template_dir: Path) -> Path:
-    """Select a template file by (tool, pattern) match.
+def _swap_language_suffix(filename: str, language: str) -> str:
+    """Convert a `<base>.ts.template` filename into `<base>.<lang>.template`.
+
+    No-op when the requested language is `ts` (the default), or when the
+    filename doesn't end in `.ts.template` — in that case we trust the
+    operator's explicit choice. Internal helper.
+    """
+    if language == "ts":
+        return filename
+    if filename.endswith(".ts.template"):
+        return filename[: -len(".ts.template")] + f".{language}.template"
+    return filename
+
+
+def pick_template(
+    tool: str,
+    pattern: str,
+    template_dir: Path,
+    language: str = "ts",
+) -> Path:
+    """Select a template file by (tool, pattern) match, honouring language.
 
     First match wins. If no entry matches, raises GenerationError —
     Mnemosyne v2 ships a small library of templates; new rule shapes
     require adding a template + a TEMPLATE_PATTERNS entry.
+
+    The TEMPLATE_PATTERNS table is canonically TypeScript; for language
+    `py` / `sh` the suffix is swapped to `<base>.<lang>.template`. If
+    that file doesn't exist, the error names which language port is
+    missing — silent fallback to TS would emit the wrong runtime.
     """
     for tmpl_tool, needle, filename in TEMPLATE_PATTERNS:
         if tool == tmpl_tool and needle in pattern:
-            path = template_dir / filename
+            resolved = _swap_language_suffix(filename, language)
+            path = template_dir / resolved
             if not path.exists():
+                if resolved != filename:
+                    raise GenerationError(
+                        f"no {language!r} port of {filename!r} available "
+                        f"(looked for {resolved!r}); set explicit "
+                        f"`template:` or use language: ts"
+                    )
                 raise GenerationError(
                     f"matched template {filename!r} but file does not exist at {path}"
                 )
@@ -240,6 +271,7 @@ def generate_hook(md: str, template_dir: Path) -> str:
             tool=enforce["tool"],
             pattern=enforce["pattern"],
             template_dir=template_dir,
+            language=enforce["language"],
         )
     template_text = template_path.read_text(encoding="utf-8")
 
@@ -254,6 +286,15 @@ def generate_hook(md: str, template_dir: Path) -> str:
     params = {
         "TOOL": enforce["tool"],
         "PATTERN_JSON": json.dumps(enforce["pattern"]),
+        # Phase 5: shell-safe form for the .sh.template port. Uses
+        # bash ANSI-C quoting `$'...'` — `$` and backticks are literal
+        # inside it, so regex metacharacters round-trip without
+        # shell-level mangling. We escape `\` and `'` only.
+        "PATTERN_SH": (
+            "$'"
+            + enforce["pattern"].replace("\\", "\\\\").replace("'", "\\'")
+            + "'"
+        ),
         "REPO_FILTER_JSON": json.dumps(enforce.get("repo_filter", "")),
         "FRESHNESS_SECS": str(enforce["freshness_secs"]),
         "GENERATED_FROM": _safe_for_comment(enforce["generated_from"]),

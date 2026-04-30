@@ -399,5 +399,58 @@ class TestCredentialPatternsField(unittest.TestCase):
         self.assertEqual(len(result["credential_patterns"]), 2)
 
 
+class TestLanguageField(unittest.TestCase):
+    """Phase 5: optional `language` field for multi-language hook generators."""
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"rm -rf",
+            "hook": ".claude/hooks/auto/g.ts",
+            "generated_from": "memory/x.md",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_language_defaults_to_ts(self):
+        # Backward-compat: every existing memory entry without
+        # `language:` keeps generating TypeScript hooks.
+        result = validate_enforce_block(self._base())
+        self.assertEqual(result["language"], "ts")
+
+    def test_language_accepts_supported_values(self):
+        for lang in ("ts", "py", "sh"):
+            result = validate_enforce_block(self._base(language=lang))
+            self.assertEqual(result["language"], lang, msg=f"language={lang}")
+
+    def test_language_rejects_unknown_value(self):
+        for bad in ("rust", "go", "TypeScript", "", "PY"):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(language=bad))
+
+    def test_language_rejects_non_string(self):
+        for bad in (42, None, ["ts"], {"ts": True}):
+            with self.assertRaises(EnforceValidationError, msg=f"value: {bad!r}"):
+                validate_enforce_block(self._base(language=bad))
+
+    def test_inject_on_match_rejected_with_non_ts_language(self):
+        # Phase 2 re-injection only emits TS glue today; combining it
+        # with py/sh would emit a broken hook. Cross-field check.
+        for lang in ("py", "sh"):
+            with self.assertRaises(EnforceValidationError) as ctx:
+                validate_enforce_block(self._base(
+                    language=lang,
+                    inject_on_match=True,
+                ))
+            self.assertIn("inject_on_match", str(ctx.exception))
+            self.assertIn(lang, str(ctx.exception))
+
+    def test_inject_on_match_allowed_with_default_language(self):
+        # Default language (ts) + inject_on_match: true is fine.
+        result = validate_enforce_block(self._base(inject_on_match=True))
+        self.assertTrue(result["inject_on_match"])
+        self.assertEqual(result["language"], "ts")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
