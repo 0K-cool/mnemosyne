@@ -368,6 +368,8 @@ and shipped as fixes — Saturday audit should confirm they hold:
 
 ### Audit checklist (Saturday execution)
 
+#### Phase 1 — Threat-model audit (~3-4h)
+
 - [ ] `git checkout -b chore/v2-security-audit` from main
 - [ ] Spawn `pai-security-reviewer` agent — defender perspective.
       Scope: `lib/enforce/` + the four templates. Use the open
@@ -380,12 +382,78 @@ and shipped as fixes — Saturday audit should confirm they hold:
       classification matching v1.1.0 audit format.
 - [ ] Fix CRITICALs and HIGHs in this branch; document
       MEDIUM/LOW as known residuals in this section.
-- [ ] Update CHANGELOG with `v2.0.0` (non-alpha) entry.
+
+#### Phase 2 — Three-plugin interop test (~1-2h)
+
+The 0K stack composition (0K-RAG + 0K-Talon + Mnemosyne) is
+documented as pairwise-compatible, but the three-way combo on a
+clean install hasn't been formally tested. This matters for
+operators (Kelvin specifically — installing on a fresh Win 11 Pro
+laptop in May 2026).
+
+- [ ] Fresh Claude Code profile. No PAI overlay.
+- [ ] `claude plugins install 0k-rag 0k-talon mnemosyne` (verify
+      install order doesn't matter — try alpha order first, then
+      reverse).
+- [ ] Confirm hooks register without conflict:
+      `ls ~/.claude/hooks/` and check no two plugins write to the
+      same filename.
+- [ ] Run a representative workflow:
+      1. Memory write (Mnemosyne L3 + 0K-Talon should both fire
+         PreToolUse on `Write`)
+      2. Auto-retrieve (Mnemosyne calls `search_kb` on 0K-RAG's
+         MCP server; 0K-Talon's MCP gate should allow)
+      3. Trigger an `enforce:` block (Mnemosyne v2 generates a
+         hook; 0K-Talon's PreToolUse gate runs alongside)
+- [ ] Document the order Claude Code runs the hooks in (it's
+      implementation-defined; the audit needs to capture the
+      observed behaviour for the version pinned).
+- [ ] Confirm 0K-Talon doesn't block 0K-RAG's MCP tools by
+      default — and if it does, document the operator opt-in
+      ("you'll see search_kb blocked; here's the env var to
+      allow").
+
+#### Phase 3 — Windows compat test (~2-3h)
+
+Mnemosyne README says "Windows support planned." The v2
+enforcement layer adds platform-sensitive code:
+
+- TS templates run via `bun` — works on Windows (bun has Win
+  binaries since v0.6).
+- Python templates run via `python3` — works on Windows.
+- Shell templates require `bash` + `jq` — on Win 11, that means
+  WSL2 or Git Bash + winget/scoop install jq.
+- `_has_traversal()` already includes Windows drive-letter detection
+  (`C:\\`, `D:/`) but the unit tests run on macOS only.
+
+- [ ] On the Win 11 Pro laptop: install bun, python 3.13, jq.
+- [ ] Run the schema/generator unit tests under Win Python:
+      `python -m unittest discover -s tests` — confirm
+      Windows path-separator handling doesn't trip the
+      traversal guard or the audit-log write.
+- [ ] Generate one hook via `python -m enforce` and confirm
+      the rendered file:
+      1. Has the right shebang for Windows (`#!/usr/bin/env bun`
+         + Git Bash / WSL works; cmd.exe doesn't — document).
+      2. The audit-path resolution `..`/`..`/`..` works under
+         Windows path semantics (forward slash vs backslash).
+- [ ] Confirm Claude Code on Windows actually loads
+      `.claude/hooks/auto/` and spawns the generated hook with
+      the right interpreter.
+- [ ] If the shell template doesn't work cleanly under Windows,
+      document the limitation in the README + raise a Phase 5.x
+      issue for "Windows-native shell port (PowerShell)?".
+
+#### Phase 4 — Release v2.0.0 (non-alpha) (~30 min)
+
+- [ ] Update CHANGELOG with `v2.0.0` (non-alpha) entry —
+      reference the audit findings + interop + Windows test
+      results.
 - [ ] Update `plugin.json` version `2.0.0-alpha` → `2.0.0`.
 - [ ] Re-run benchmark suite (markdown + core + full).
 - [ ] Open release PR. CR review. Merge.
-- [ ] `git tag v2.0.0` (NOT prerelease). `gh release create
-      v2.0.0 --latest`.
+- [ ] `git tag v2.0.0` (NOT prerelease).
+      `gh release create v2.0.0 --latest`.
 - [ ] Promote v2.0.0 to "Latest" badge on GitHub.
 - [ ] Discord notify.
 
