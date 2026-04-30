@@ -21,14 +21,15 @@ Security fixes land on the **latest minor** release.
 | v1.1.x            | Yes            |
 | v1.0.x            | No — upgrade   |
 
-> **Note on v2 alpha:** v2.0.0 ships the new memory-driven enforcement
-> layer (`enforce:` block + hook generator). The retrieval, write-time
-> validation, and read-time scanner layers from v1.1.x are unchanged
-> and retain their full security guarantees. The v2 enforcement
-> generator has its own threat surface (template injection,
-> audit-log tampering, hook-path traversal) — those are validated by
-> the schema + generator unit tests but have not yet been audited by
-> an external defender + offensive pass the way v1.1.0 was. Expect a
+> **Note on v2 alpha:** v2.0.0-alpha ships the new memory-driven
+> enforcement layer (`enforce:` block + hook generator). The
+> retrieval, write-time validation, and read-time scanner layers
+> from v1.1.x are unchanged and retain their full security
+> guarantees. The v2.0.0-alpha enforcement generator has its own
+> threat surface (template injection, audit-log tampering,
+> hook-path traversal) — those are validated by the schema +
+> generator unit tests but have not yet been audited by an external
+> defender + offensive pass the way v1.1.0 was. Expect a
 > SECURITY.md v2 section + audit findings appendix in v2.0.0
 > (non-alpha).
 

@@ -143,7 +143,7 @@ Full design: [`docs/v2-enforcement.md`](docs/v2-enforcement.md).
 
 ## Architecture
 
-```
+```text
 INSTALL (zero-dep)             v2 ENFORCE (opt-in)         + 0K-RAG (optional)
 ============================   ==========================  ============================
 identity.txt ──► cold-start    enforce: ──► generator ──►
