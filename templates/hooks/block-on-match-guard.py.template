@@ -81,9 +81,21 @@ def main() -> None:
         # tool calls. Audit-only.
         sys.exit(0)
 
+    # Defensive shape checks — JSON parses successfully for many shapes
+    # we don't expect (list, scalar, dict-with-non-dict-tool_input).
+    # Without these guards, .get() on a list / .get() on a non-dict
+    # tool_input would raise AttributeError, which contradicts the
+    # documented fail-open posture for this template.
+    if not isinstance(data, dict):
+        sys.exit(0)
     if data.get("tool_name") != "{{TOOL}}":
         sys.exit(0)
-    cmd = (data.get("tool_input") or {}).get("command") or ""
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict):
+        sys.exit(0)
+    cmd = tool_input.get("command")
+    if not isinstance(cmd, str):
+        cmd = ""
     if not PATTERN.search(cmd):
         sys.exit(0)
 

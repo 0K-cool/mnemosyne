@@ -750,7 +750,12 @@ class TestPhase5MultiLanguage(unittest.TestCase):
         import shutil
         import subprocess
         import tempfile
-        if not shutil.which("bash"):
+        # Resolve bash to its absolute path up front. Passing the
+        # partial name "bash" to subprocess.run trips Ruff S607
+        # (partial executable path) and would also pick up a
+        # potentially-unintended bash from PATH at test time.
+        bash_bin = shutil.which("bash")
+        if not bash_bin:
             self.skipTest("bash not available")
         md = (
             "---\n"
@@ -770,8 +775,8 @@ class TestPhase5MultiLanguage(unittest.TestCase):
             f.write(hook_source)
             tmp_path = f.name
         try:
-            result = subprocess.run(
-                ["bash", "-n", tmp_path],
+            result = subprocess.run(  # noqa: S603 # nosec B603 - bash_bin is the resolved absolute path; args are constants
+                [bash_bin, "-n", tmp_path],
                 capture_output=True,
                 text=True,
                 timeout=5,

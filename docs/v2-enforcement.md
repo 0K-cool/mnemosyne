@@ -416,13 +416,13 @@ The `TEMPLATE_PATTERNS` table is canonical TypeScript. When an
 operator sets `language: py` (or `sh`), `pick_template` swaps the
 suffix:
 
-```
+```text
 block-on-match-guard.ts.template  →  block-on-match-guard.py.template
 ```
 
 If the requested port doesn't exist, the generator fails loudly:
 
-```
+```text
 no 'py' port of 'force-push-guard.ts.template' available
 (looked for 'force-push-guard.py.template'); set explicit
 `template:` or use language: ts
@@ -454,7 +454,7 @@ Phase 2 re-injection (`inject_on_match: true`) currently emits only
 TypeScript glue. The schema rejects the combo with `language: py /
 sh` to avoid emitting a broken hook:
 
-```
+```text
 inject_on_match: true is only supported with language: ts in v2.
 Re-injection ports for py / sh are tracked as a Phase 5.x follow-up.
 ```

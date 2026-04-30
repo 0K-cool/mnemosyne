@@ -92,8 +92,22 @@ main() {
     exit 0
   fi
   cmd=$(echo "$input" | jq -r '.tool_input.command // empty' 2>/dev/null) || cmd=""
-  if ! echo "$cmd" | grep -qE -- "$PATTERN"; then
+
+  # Distinguish grep exit codes:
+  #   0 → match (proceed to block)
+  #   1 → no match (allow)
+  #   2+ → regex error (PATTERN uses syntax invalid in grep ERE — e.g. JS-only
+  #         lookaheads, Python named groups). Don't treat that as "no match" —
+  #         the guard would silently disable. Block with a clear reason.
+  set +e
+  echo "$cmd" | grep -qE -- "$PATTERN"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 1 ]; then
     exit 0
+  fi
+  if [ "$rc" -ne 0 ]; then
+    emit_block "pattern evaluation failed (grep rc=$rc — pattern likely uses syntax invalid in grep ERE)"
   fi
 
   emit_block "pattern matched"
