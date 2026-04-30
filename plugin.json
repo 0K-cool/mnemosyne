@@ -1,7 +1,7 @@
 {
   "name": "mnemosyne",
-  "version": "1.1.0",
-  "description": "Structured AI memory for professionals. 100% local. Zero cloud. Security-first.",
+  "version": "2.0.0-alpha",
+  "description": "Structured AI memory for professionals. 100% local. Zero cloud. Security-first. v2 adds memory-driven runtime enforcement: memory entries with an `enforce:` block generate Claude Code hooks that hard-block at the tool boundary.",
   "author": "ZerOK Labs",
   "repository": "https://github.com/0K-cool/mnemosyne",
   "license": "MIT",
@@ -17,8 +17,8 @@
   ],
   "features": {
     "mcpServer": false,
-    "cliTools": false,
-    "pythonLibrary": false,
+    "cliTools": true,
+    "pythonLibrary": true,
     "slashCommands": true,
     "hooks": true,
     "agents": false

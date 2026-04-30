@@ -9,10 +9,11 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Claude_Code-orange.svg" alt="Claude Code" />
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/version-1.0.0-green.svg" alt="Version 1.0.0" />
-  <img src="https://img.shields.io/badge/tests-142%20passing-brightgreen.svg" alt="142 tests passing" />
+  <img src="https://img.shields.io/badge/version-2.0.0--alpha-green.svg" alt="Version 2.0.0-alpha" />
+  <img src="https://img.shields.io/badge/tests-366%20passing-brightgreen.svg" alt="366 tests passing" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
+  <img src="https://img.shields.io/badge/v2-memory--driven_enforcement-9d4edd.svg" alt="v2 memory-driven enforcement" />
   <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
   <img src="https://img.shields.io/badge/Forged_in-Puerto_Rico_🇵🇷-c8960c.svg" alt="Forged in Puerto Rico" />
 </p>
@@ -28,6 +29,7 @@ By [ZerOK Labs](https://zeroklabs.ai) — part of the 0K product suite.
 - [Install](#install)
 - [What You Get](#what-you-get)
 - [How It Works](#how-it-works)
+- [Memory-Driven Enforcement (v2)](#memory-driven-enforcement-v2)
 - [Architecture](#architecture)
 - [Benchmark](#benchmark)
 - [Security](#security)
@@ -51,9 +53,10 @@ That's it. Zero dependencies. Works immediately.
 
 - **Auto-save** — memories saved on session end, even if the AI forgets
 - **Auto-retrieve** — relevant memories injected into every prompt
+- **Memory-driven enforcement (v2 alpha)** — memory entries with an `enforce:` block generate Claude Code hooks that **hard-block at the tool boundary**. The agent cannot rationalise its way around the rule because the runtime intercepts before the tool runs. ([How](#memory-driven-enforcement-v2))
 - **Self-improvement** — `/gotcha` captures mistakes at the source
 - **Session mining** — `/mine-session` extracts learnings from past conversations
-- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 89 test cases including homoglyph and encoding bypass)
+- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 100 test cases including homoglyph and encoding bypass)
 - **Templates** — starter `MEMORY.md`, `identity.txt`, and `memory/` directory
 
 ## How It Works
@@ -79,22 +82,86 @@ With optional [0K-RAG](https://github.com/0K-cool/0k-rag):
 
 **Design principle:** The journal doesn't search. The library doesn't store decisions. The immune system doesn't retrieve. Each piece does one thing well.
 
+## Memory-Driven Enforcement (v2)
+
+> "CLAUDE.md content is delivered as a user message after the system prompt, not as part of the system prompt itself. Claude reads it and tries to follow it, but **there's no guarantee of strict compliance**."
+> — [Anthropic, code.claude.com/docs/en/memory](https://code.claude.com/docs/en/memory)
+
+Mnemosyne v1 makes memory *recallable*. v2 makes it *enforceable*. When a memory entry declares an `enforce:` block, Mnemosyne can generate a Claude Code hook that intercepts the matching tool call at the runtime boundary — a layer Anthropic's docs confirm IS enforced regardless of what the agent rationalises.
+
+```yaml
+---
+name: no-force-push-to-main
+type: feedback
+description: |
+  Force-pushing to main rewrites shared history. Catastrophic on a
+  team; merely embarrassing on a solo project. Block before, not after.
+enforce:
+  tool: Bash
+  pattern: "git push --force"
+  hook: .claude/hooks/auto/force-push-guard.ts
+  generated_from: memory/feedback_no_force_push_main.md
+  protected_branches: [main, master]
+---
+
+Body text — the rule prose for human readers and recall.
+```
+
+```bash
+PYTHONPATH=lib python -m enforce \
+  --memory-dir memory \
+  --output-dir .claude/hooks/auto
+
+# → Writes .claude/hooks/auto/force-push-guard.ts
+# → Claude Code loads it on next session start
+# → `git push --force origin main` is now hard-blocked
+```
+
+### Templates that ship with v2 alpha
+
+| Template | What it gates | Languages |
+|---|---|:---:|
+| `cr-prepush-guard` | `git push` to private 0K-cool repos behind a fresh CodeRabbit review | ts |
+| `block-on-match-guard` | "Always block" pattern matches (`rm -rf /`, destructive SQL, etc.) | ts • py • sh |
+| `force-push-guard` | `git push --force` to protected branches (default: `main`, `master`) | ts |
+| `credential-leak-guard` | `Edit` / `Write` / `MultiEdit` writes containing AWS keys, GitHub PATs, Slack tokens, PEM private keys, Stripe live keys, npm / GitLab tokens | ts |
+
+Tool-aware templates parse arguments rather than relying on regex alone — `force-push-guard` tokenises `git push` properly so `git -c k=v push --force ...` and `git push --force origin HEAD:refs/heads/main` are both caught (both are real bypass surfaces v1 regex would miss).
+
+### Multi-language support
+
+Default emit language is TypeScript (zero-dep on bun). Set `language: py` or `language: sh` in the `enforce:` block to emit a stdlib-only Python hook or a `jq`-based shell hook instead.
+
+### What it doesn't do
+
+- **Only the rules you wire** — entries without an `enforce:` block stay recall-only.
+- **Tool boundary only** — hooks fire on tool calls, not on agent reasoning. An agent can still draft a bad plan; it just can't execute the gated action.
+- **Architectural bypasses** are documented limits: Claude Code subagent calls bypass PreToolUse hooks ([#21460](https://github.com/anthropics/claude-code/issues/21460)), MCP tool calls have their own surface, `@file` mentions sidestep hook gates. Mnemosyne v2 is one defense-in-depth layer, not a silver bullet.
+- **Pattern fragility is real** — a regex-only template can be evaded by command normalisation. The shipped templates layer arg parsing on top of regex to close the most common bypass classes, but new ones will surface.
+
+Full design: [`docs/v2-enforcement.md`](docs/v2-enforcement.md).
+
 ## Architecture
 
 ```
-INSTALL (zero-dep)          + 0K-RAG (optional)
-========================    ========================
-identity.txt ──► cold-start
-MEMORY.md ──► keyword index
-memory/ ──► file storage
-hooks/ ──► auto-save,        0K-RAG ──► vector + BM25
-           auto-retrieve,              + RRF + BGE
-           memory-validation            reranking
-skills/ ──► /gotcha,
-            /mine-session
+INSTALL (zero-dep)             v2 ENFORCE (opt-in)         + 0K-RAG (optional)
+============================   ==========================  ============================
+identity.txt ──► cold-start    enforce: ──► generator ──►
+MEMORY.md ──► keyword index    .claude/hooks/auto/
+memory/ ──► file storage         <rule>.<lang>          0K-RAG ──► vector + BM25
+hooks/ ──► auto-save,                                              + RRF + BGE
+           auto-retrieve,      Templates:                          reranking
+           memory-validation     cr-prepush-guard
+skills/ ──► /gotcha,             block-on-match-guard
+            /mine-session        force-push-guard
+                                 credential-leak-guard
+                               Languages: ts | py | sh
 
 Retrieval: BM25 + stemming ──► OR ──► vector + BM25 + RRF ──► OR ──► + BGE reranking
            (81% R@5, 0 deps)          (100% R@5, core)              (100% R@5, full)
+
+Enforcement (opt-in per memory entry):
+   memory entry { enforce: } ──► python -m enforce ──► PreToolUse hook ──► tool boundary block
 ```
 
 ## Benchmark
@@ -149,7 +216,7 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 - HTML-entity encoding (`&#105;gnore` — would require an HTML parser; memory files are markdown, not HTML, making this an impractical attack vector)
 - Legitimate content quoting injection patterns (security research notes that quote attack strings will trigger — this is by design: security > convenience, and the cost of a false negative outweighs the cost of a false positive)
 
-**Test coverage:** 142 tests total. The adversarial suite alone has 89 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention.
+**Test coverage:** 366 tests total (266 Python + 100 bun). The adversarial bun suite alone has 100 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention. `test_content_scanner.py` mirrors the same 56 cases at read time on retrieved chunks (defense in depth — same patterns, both write-time and read-time).
 
 For comparison: MemPalace has zero memory validation. No injection detection, no size limits, no content scanning.
 
@@ -176,18 +243,27 @@ The plugin auto-detects which tier is available and uses the best one.
 ## Test Suite
 
 ```bash
-make test          # Run all 142 tests
+make test          # Run all 366 tests (266 Python + 100 bun)
 make test-fast     # Unit + adversarial only (<1s)
 make test-integration  # Hook I/O + plugin structure
 ```
 
 | Suite | Framework | Tests | What It Covers |
 |---|---|:---:|---|
-| `test_markdown_retriever.py` | Python unittest | 18 | Two-pass keyword retrieval algorithm |
+| `test_markdown_retriever.py` | Python unittest | 23 | Two-pass keyword retrieval algorithm |
+| `test_markdown_retriever_limits.py` | Python unittest | 8 | Retriever DoS guards (256KB cap, 5000-entry index ceiling) |
 | `test_auto_retrieve.py` | Python unittest | 20 | RAG detection, memory dir walk, rate limiting |
-| `test_memory_validation.test.ts` | Bun test | 89 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding) |
-| `test_integration.py` | Python unittest | 6 | Dual-mode detection, plugin structure |
+| `test_auto_retrieve_security.py` | Python unittest | 30 | RAG path allowlist, importlib loader, untrusted-retrieved-memory delimiter |
+| `test_content_scanner.py` | Python unittest | 56 | Read-time injection scanner (mirror of bun adversarial suite, applied to retrieved chunks) |
+| `test_integration.py` | Python unittest | 10 | Dual-mode detection, plugin structure |
 | `test_hook_io.py` | Python unittest | 9 | Subprocess JSON contracts for all 4 hooks |
+| `test_enforce_schema.py` | Python unittest | 46 | v2 `enforce:` block validation: required fields, paths, regex compile, injection fields, template selection, protected_branches, credential_patterns, language |
+| `test_enforce_generator.py` | Python unittest | 44 | v2 generator: parse, dispatch, render, bun-build / `compile()` / `bash -n` smoke tests across all template + language combinations |
+| `test_enforce_cli.py` | Python unittest | 8 | v2 `mnemosyne enforce` CLI: walk memory dir, idempotent regen, dry-run, single-rule mode, orphan reporting |
+| `test_enforce_audit.py` | Python unittest | 12 | v2 audit aggregator: per-rule counts, threshold escalation, JSON output |
+| `test_memory_validation.test.ts` | Bun test | 100 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding + read-time scanner) |
+
+**Total: 366 tests** (266 Python + 100 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
 
 ## License
 
