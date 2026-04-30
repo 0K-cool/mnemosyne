@@ -629,5 +629,189 @@ class TestPhase42CredentialLeakGuard(unittest.TestCase):
         self.assertIn("event: 'allow', reason: 'no content'", hook_source)
 
 
+class TestPhase5MultiLanguage(unittest.TestCase):
+    """Phase 5: language field swaps the template suffix .<lang>.template
+    so the same TEMPLATE_PATTERNS dispatch resolves to py / sh ports."""
+
+    def _md(
+        self,
+        *,
+        pattern: str = r"rm -rf",
+        language: str | None = None,
+        template: str | None = None,
+    ) -> str:
+        lines = [
+            "---",
+            "name: phase5-test",
+            "type: feedback",
+            "enforce:",
+            "  tool: Bash",
+            f'  pattern: "{pattern}"',
+            "  hook: .claude/hooks/auto/test.ts",
+            "  generated_from: memory/p5.md",
+            "  template: block-on-match-guard.ts.template",
+        ]
+        if language is not None:
+            lines.append(f"  language: {language}")
+        # Allow the test to override template explicitly (e.g. to point
+        # at a non-TS template file by name).
+        if template is not None:
+            lines[-1] = f"  template: {template}"
+        lines.extend(["---", "Body."])
+        return "\n".join(lines) + "\n"
+
+    def test_default_language_is_ts(self):
+        """Backward-compat: no language field → TS template, current behaviour."""
+        # Use TEMPLATE_PATTERNS dispatch (no explicit template field).
+        md = (
+            "---\n"
+            "name: phase5-default\n"
+            "type: feedback\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "git push -u origin"\n'
+            "  hook: .claude/hooks/auto/test.ts\n"
+            "  generated_from: memory/p5.md\n"
+            "---\nBody.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # cr-prepush is TS — spot-check a TS-only construct.
+        self.assertIn("import { existsSync", hook_source)
+
+    def test_python_language_picks_py_template(self):
+        """language: py + dispatchable pattern → .py.template is used."""
+        md = (
+            "---\n"
+            "name: phase5-py\n"
+            "type: feedback\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "rm -rf /"\n'
+            "  hook: .claude/hooks/auto/test.py\n"
+            "  generated_from: memory/p5.md\n"
+            "  language: py\n"
+            "  template: block-on-match-guard.py.template\n"
+            "---\nBody.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # Python-distinctive markers.
+        self.assertIn("#!/usr/bin/env python3", hook_source)
+        self.assertIn("import json", hook_source)
+        self.assertIn("import re", hook_source)
+        # Box marker still there.
+        self.assertIn("BLOCK-ON-MATCH GUARD", hook_source)
+
+    def test_python_template_compiles(self):
+        """The rendered .py template must be syntactically valid Python."""
+        md = (
+            "---\n"
+            "name: phase5-py-syntax\n"
+            "type: feedback\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "rm -rf /"\n'
+            "  hook: .claude/hooks/auto/test.py\n"
+            "  generated_from: memory/p5.md\n"
+            "  language: py\n"
+            "  template: block-on-match-guard.py.template\n"
+            "---\nBody.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        try:
+            compile(hook_source, "<rendered>", "exec")
+        except SyntaxError as exc:
+            self.fail(f"rendered Python hook has SyntaxError: {exc}\n{hook_source}")
+
+    def test_shell_language_picks_sh_template(self):
+        """language: sh + explicit template → .sh.template is used."""
+        md = (
+            "---\n"
+            "name: phase5-sh\n"
+            "type: feedback\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "rm -rf /"\n'
+            "  hook: .claude/hooks/auto/test.sh\n"
+            "  generated_from: memory/p5.md\n"
+            "  language: sh\n"
+            "  template: block-on-match-guard.sh.template\n"
+            "---\nBody.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("#!/usr/bin/env bash", hook_source)
+        self.assertIn("set -euo pipefail", hook_source)
+        # ANSI-C-quoted pattern lands as $'...' — Phase 5 shell-safe form.
+        self.assertIn("PATTERN=$'", hook_source)
+        # jq is documented as required.
+        self.assertIn("command -v jq", hook_source)
+
+    def test_shell_template_passes_bash_syntax_check(self):
+        """The rendered .sh template must pass `bash -n` syntax check."""
+        import shutil
+        import subprocess
+        import tempfile
+        if not shutil.which("bash"):
+            self.skipTest("bash not available")
+        md = (
+            "---\n"
+            "name: phase5-sh-syntax\n"
+            "type: feedback\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "rm -rf /"\n'
+            "  hook: .claude/hooks/auto/test.sh\n"
+            "  generated_from: memory/p5.md\n"
+            "  language: sh\n"
+            "  template: block-on-match-guard.sh.template\n"
+            "---\nBody.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
+            f.write(hook_source)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                ["bash", "-n", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                self.fail(
+                    f"bash -n failed:\n{result.stderr}\n--- source ---\n{hook_source}"
+                )
+        finally:
+            import os as _os
+            try:
+                _os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    def test_dispatch_swaps_suffix_for_non_ts_languages(self):
+        """TEMPLATE_PATTERNS dispatch should pick .py.template when
+        language: py (no explicit template field). Asserts the
+        suffix-swap path in pick_template."""
+        md = (
+            "---\n"
+            "name: phase5-dispatch\n"
+            "type: feedback\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            # cr-prepush-guard auto-dispatches on "git push", but
+            # there's no .py port of cr-prepush yet — the generator
+            # should error loudly, not silently fall back to TS.
+            '  pattern: "git push -u origin"\n'
+            "  hook: .claude/hooks/auto/test.py\n"
+            "  generated_from: memory/p5.md\n"
+            "  language: py\n"
+            "---\nBody.\n"
+        )
+        with self.assertRaises(GenerationError) as ctx:
+            generate_hook(md, template_dir=TEMPLATE_DIR)
+        # Error names the language and the missing port.
+        self.assertIn("'py'", str(ctx.exception))
+        self.assertIn("cr-prepush-guard.ts.template", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

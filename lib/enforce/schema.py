@@ -54,6 +54,12 @@ DEFAULT_FRESHNESS_SECS = 1800  # 30 minutes
 HOOK_PATH_PREFIX = ".claude/hooks/auto/"
 REQUIRED_FIELDS: tuple[str, ...] = ("tool", "pattern", "hook", "generated_from")
 
+# Phase 5 — multi-language hook generators. Operators pick the language
+# the generated hook should be emitted in. Default `ts` keeps every
+# existing memory entry working unchanged.
+SUPPORTED_LANGUAGES: frozenset[str] = frozenset({"ts", "py", "sh"})
+DEFAULT_LANGUAGE = "ts"
+
 # Phase 2 — action-time rule re-injection.
 # Re-injected text is capped to keep context spend predictable. 1024 tokens
 # is a hard upper bound; rough char-budget at generation time is
@@ -232,6 +238,32 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
             f"inject_token_budget must be ≤ {MAX_INJECT_TOKEN_BUDGET}, got {raw_budget}"
         )
     out["inject_token_budget"] = raw_budget
+
+    # ---- Phase 5: multi-language hook generation ----
+
+    # language — optional string, must be one of SUPPORTED_LANGUAGES.
+    # Default `ts` keeps every existing memory entry working unchanged.
+    raw_language = out.get("language", DEFAULT_LANGUAGE)
+    if not isinstance(raw_language, str):
+        raise EnforceValidationError(
+            f"language must be a string, got {type(raw_language).__name__}"
+        )
+    if raw_language not in SUPPORTED_LANGUAGES:
+        raise EnforceValidationError(
+            f"language must be one of {sorted(SUPPORTED_LANGUAGES)}, got {raw_language!r}"
+        )
+    out["language"] = raw_language
+
+    # Cross-field constraint: Phase 2 re-injection (`inject_on_match`)
+    # currently only emits TypeScript glue. Reject the combo with
+    # non-TS languages until py/sh re-injection ports land — better
+    # to fail loud at validation than emit a broken hook.
+    if out.get("inject_on_match", False) and raw_language != "ts":
+        raise EnforceValidationError(
+            f"inject_on_match: true is only supported with language: ts "
+            f"in v2 (got language: {raw_language!r}). Re-injection ports "
+            f"for py / sh are tracked as a Phase 5.x follow-up."
+        )
 
     # ---- Phase 4.2: credential-leak-guard parameters ----
 
