@@ -213,8 +213,10 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 - URL-encoded payloads (percent-decoded before pattern matching)
 
 **What it doesn't catch** (known limitations, documented in tests):
-- HTML-entity encoding (`&#105;gnore` — would require an HTML parser; memory files are markdown, not HTML, making this an impractical attack vector)
 - Legitimate content quoting injection patterns (security research notes that quote attack strings will trigger — this is by design: security > convenience, and the cost of a false negative outweighs the cost of a false positive)
+- Novel patterns not yet in the rule set (the ruleset is updated as new techniques surface; see [SECURITY.md](SECURITY.md) for the threat-model boundary)
+
+(HTML-entity encoding `&#105;gnore` was an earlier limitation — v1.1.0 added a numeric + small-named-entity decoder, MED-2 in the audit, so it IS now caught alongside the URL-encoded variants.)
 
 **Test coverage:** 366 tests total (266 Python + 100 bun). The adversarial bun suite alone has 100 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention. `test_content_scanner.py` mirrors the same 56 cases at read time on retrieved chunks (defense in depth — same patterns, both write-time and read-time).
 

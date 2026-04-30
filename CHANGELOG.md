@@ -5,7 +5,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
-[1.1.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v1.1.0
 
 ## [2.0.0-alpha] — 2026-04-29
 
