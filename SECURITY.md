@@ -201,7 +201,7 @@ operator  →  memory entry  →  generator  →  hook source  →  tool boundar
   template files in
   [`templates/hooks/`](templates/hooks/).
 
-[TODO Saturday: for each of T1-T4, list the failure modes the
+[TODO(Phase 1 audit): for each of T1-T4, list the failure modes the
 audit needs to validate are closed; produce a transition-id
 table mapping audit findings back to the responsible boundary.]
 
@@ -227,36 +227,36 @@ if an attacker writes a forged cache file with a long
 `freshness_secs`, the HEAD-binding makes it useless after any
 `git commit` or `git checkout`.
 
-[TODO Saturday: confirm `cr-prepush-guard.ts.template` implements
+[TODO(Phase 1 audit): confirm `cr-prepush-guard.ts.template` implements
 all five checks; add a unit test that mutates a cache file's
 HEAD field and verifies fail-closed behavior.]
 
-[TODO Saturday: `git diff` invocation — confirm no shell-string
+[TODO(Phase 1 audit): `git diff` invocation — confirm no shell-string
 form anywhere; verify args are constants.]
 
 #### `block-on-match-guard.ts.template` / `.py.template` / `.sh.template`
 
-[TODO Saturday: regex DoS via crafty `pattern` (catastrophic
+[TODO(Phase 1 audit): regex DoS via crafty `pattern` (catastrophic
 backtracking). Should `validate_enforce_block` reject patterns
 with known-bad shapes (e.g. `(a+)+b`)? Cost-benefit vs operator
 flexibility.]
 
-[TODO Saturday: shell-template-specific — confirm `jq` failure
+[TODO(Phase 1 audit): shell-template-specific — confirm `jq` failure
 modes don't leak data; confirm `grep -qE` exit-code distinction
 covers all GNU/BSD grep variants.]
 
 #### `force-push-guard.ts.template`
 
-[TODO Saturday: branch-name normalisation — `normalizeBranchName`
+[TODO(Phase 1 audit): branch-name normalisation — `normalizeBranchName`
 strips `refs/heads/` but does it handle `refs/remotes/`,
 `refs/tags/`, or symbolic refs? Real-world bypass surface check.]
 
-[TODO Saturday: `git rev-parse` invocation correctness — confirm
+[TODO(Phase 1 audit): `git rev-parse` invocation correctness — confirm
 the args array can't be poisoned via `cwd` or env.]
 
 #### `credential-leak-guard.ts.template`
 
-[TODO Saturday: pattern set audit — are the 8 default patterns
+[TODO(Phase 1 audit): pattern set audit — are the 8 default patterns
 still high-confidence in 2026? GitHub PAT format changes; Stripe
 key formats; new tokens (Cohere, Together AI, etc.). Annotate
 each pattern with its source-of-truth doc.]
@@ -279,7 +279,7 @@ secret-bearing path shapes (`\\.env`, `\\.envrc`, `secrets`,
 Tune per environment based on the block-rate observed in the
 audit log.
 
-[TODO Saturday: ship a curated default-pattern bundle in the
+[TODO(Phase 1 audit): ship a curated default-pattern bundle in the
 schema so operators don't have to hand-roll a path filter to get
 defense-in-depth out of the box.]
 
@@ -290,40 +290,40 @@ defense-in-depth out of the box.]
   - Existing: `_safe_for_comment` neutralises `\r\n` + U+2028 +
     U+2029; placeholder residue check; values json-encoded for
     regex contexts; values ANSI-C-quoted for shell contexts.
-  - [TODO Saturday: long-value DoS, Unicode confusables, embedded
+  - [TODO(Phase 1 audit): long-value DoS, Unicode confusables, embedded
     control chars, RTL override sequences.]
 
 - **Audit-log path tampering** — what stops a malicious entry
   from redirecting audit writes elsewhere on the filesystem?
   - Existing: `_validate_path_safe` rejects POSIX absolutes,
     Windows drive letters, traversal segments.
-  - [TODO Saturday: confirm symlink dereference behaviour at
+  - [TODO(Phase 1 audit): confirm symlink dereference behaviour at
     write time; document fs.appendFile semantics under symlink.]
 
 - **Hook-path traversal** — same as above but for the hook
   output path.
   - Existing: `HOOK_PATH_PREFIX` requires `.claude/hooks/auto/`;
     operators cannot write outside that directory.
-  - [TODO Saturday: confirm CLI generator respects this even
+  - [TODO(Phase 1 audit): confirm CLI generator respects this even
     with `--output-dir` overrides; orphan detection scope.]
 
 - **YAML injection in `enforce:` blocks** — billion-laughs,
   anchors, aliases.
   - Existing: `yaml.safe_load` (not `load`); explicit type
     checks via `validate_enforce_block`.
-  - [TODO Saturday: anchor-amplification DoS in
+  - [TODO(Phase 1 audit): anchor-amplification DoS in
     `parse_memory_entry`; deeply-nested mappings; size cap on
     frontmatter byte length.]
 
 - **Regex compile DoS** — `re.compile` itself can be slow on
   pathological patterns.
-  - [TODO Saturday: timeout on schema validation; reject patterns
+  - [TODO(Phase 1 audit): timeout on schema validation; reject patterns
     above a complexity threshold.]
 
 - **Comment-block escape** — values that land inside `//` line
   comments in the rendered TS.
   - Existing: `_safe_for_comment` strips line terminators.
-  - [TODO Saturday: confirm Python `#` and shell `#` comment
+  - [TODO(Phase 1 audit): confirm Python `#` and shell `#` comment
     contexts have equivalent neutralisation in py/sh templates.]
 
 ### Architectural bypasses NOT closed by v2
@@ -360,7 +360,7 @@ SubagentStop hook, at-mention guard — see PAI's L1 / L19).
   May 2 appendix; operators on Claude Code older than the upstream
   fix release remain bypassable.
 
-[TODO Saturday: produce the version-pinned appendix — verified
+[TODO(Phase 1 audit): produce the version-pinned appendix — verified
 behaviour table for v2.1.128, plus a documented re-verification
 protocol for operators upgrading past that pin.]
 
@@ -451,8 +451,7 @@ and shipped as fixes — the audit should confirm they hold:
 The 0K stack composition (0K-RAG + 0K-Talon + Mnemosyne) is
 documented as pairwise-compatible, but the three-way integration
 has not yet been validated on a clean install. This matters for
-operators (Kelvin specifically — installing on a fresh Win 11 Pro
-laptop in May 2026).
+operators performing fresh installs on Windows 11 Pro.
 
 - [ ] Fresh Claude Code profile. No PAI overlay.
 - [ ] `claude plugins install 0k-rag 0k-talon mnemosyne` (verify
