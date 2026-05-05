@@ -336,7 +336,7 @@ SubagentStop hook, at-mention guard — see PAI's L1 / L19).
 > **Operator requirement:** do **not** rely on the bypass-status
 > notes below unless you have verified them against your deployed
 > Claude Code version and pinned that version in your operating
-> environment. The May 2 audit (Phase 1) will produce an appendix
+> environment. The Phase 1 audit will produce an appendix
 > pinning verified behaviour for **Claude Code v2.1.128** (current
 > at time of writing). Operators on later versions must re-verify
 > before trusting the listed status — Claude Code hook semantics
@@ -352,13 +352,13 @@ SubagentStop hook, at-mention guard — see PAI's L1 / L19).
   [#3514](https://github.com/anthropics/claude-code/issues/3514) /
   [#4669](https://github.com/anthropics/claude-code/issues/4669).
   Both CLOSED upstream but unconfirmed in production.
-  **v2.1.128 status:** to be re-verified by the May 2 appendix;
+  **v2.1.128 status:** to be re-verified by the Phase 1 appendix;
   do not trust until confirmed.
 - **`@file` mentions** — Claude Code issue
   [#35147](https://github.com/anthropics/claude-code/issues/35147).
   CLOSED upstream. **v2.1.128 status:** to be re-verified by the
-  May 2 appendix; operators on Claude Code older than the upstream
-  fix release remain bypassable.
+  Phase 1 appendix; operators on Claude Code older than the
+  upstream fix release remain bypassable.
 
 [TODO(Phase 1 audit): produce the version-pinned appendix — verified
 behaviour table for v2.1.128, plus a documented re-verification
