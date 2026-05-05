@@ -4,7 +4,95 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+<!-- [2.0.0]: link added after the v2.0.0 tag is published. -->
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.0.0] — 2026-05-05
+
+**Memory-driven runtime enforcement, audit-hardened.** v2.0.0 graduates
+the alpha to non-alpha after a parallel defender + offensive audit pass
+(Phase 1) against the v2.0.0-alpha enforcement layer. The audit
+surfaced 2 CRITICAL + 4 HIGH + 6 MEDIUM + 6 LOW findings; all CRITs
+and HIGHs are closed in this release. Remaining MEDs and LOWs are
+documented as known residuals in `SECURITY.md` scoped for v2.0.1.
+
+Audit reports archived under
+`output/research/mnemosyne-v2-audit-{defender,redteam}-2026-05-05.md`.
+
+### Security — closed (CRIT)
+
+- **CRIT-1: Template-injection RCE via `audit_log` field.**
+  Schema-layer strict character allow-list `[A-Za-z0-9_./-]` on
+  `audit_log` / `hook` / `generated_from` (256-byte cap) blocks
+  the quote-injection payload at validation. Per-context generator
+  sanitisers (`_safe_for_ts_string`, `_safe_for_py_string`,
+  `_safe_for_shell_dollar_quote`) provide defense-in-depth at
+  render time.
+- **CRIT-2: Symlink-follow arbitrary file overwrite + chmod.**
+  CLI now refuses to write when `out_path` is a symlink (check
+  runs BEFORE the read_text idempotent-skip path) and the write
+  itself uses `tempfile.mkstemp` + `fchmod` + `os.rename` for
+  atomic, symlink-safe replace.
+
+### Security — closed (HIGH)
+
+- **HIGH-1: cr-prepush cache trust violated documented policy.**
+  Template now AND-combines `statSync(CACHE_PATH).mtimeMs` with
+  the JSON `entry.ts` freshness gate. Forged cache JSON no longer
+  bypasses pre-push review.
+- **HIGH-2: ReDoS via attacker-controlled patterns.** Schema
+  rejects nested unbounded quantifiers (inner `+` / `*` / `?` /
+  `{n,}` followed by outer quantifier) and caps pattern byte
+  length at 512.
+- **HIGH-3: `_safe_for_comment` insufficient outside comment
+  contexts.** Renamed to `_safe_for_line_comment` with scope
+  spelled out in docstring; three new context-specific sanitisers
+  used in templates' string-literal placements.
+- **HIGH-4: `block-on-match-guard.*` silently no-op for non-Bash
+  tools.** Schema cross-field check rejects incompatible
+  `(template, tool)` pairs.
+
+### Security — closed (MED, opportunistic)
+
+- **RT-EXP-2:** `force-push-guard` `normalizeBranchName` now
+  strips `refs/tags/` and `refs/remotes/<remote>/` in addition
+  to `refs/heads/`. The bypass refspec
+  `git push --force origin HEAD:refs/tags/main` no longer evades.
+- **RT-EXP-4:** `cr-prepush-guard.ts.template` audit path was
+  hardcoded; now follows the operator's `audit_log:` setting via
+  `{{AUDIT_LOG_PATH_TS}}`, consistent with the other three
+  templates.
+
+### Known residuals (scoped for v2.0.1)
+
+See `SECURITY.md` § "Phase 1 audit findings" for the full list with
+operator-facing notes. Summary: MED-1 idempotent-skip regex (TS
+comments only), MED-2 `--output-dir` bypass, MED-3 TOCTOU empty-
+file window (CRIT-2 narrows but doesn't eliminate), MED-4 sidecar
+orphan-detection exemption, MED-5 audit aggregator silent-skip on
+torn JSONL, MED-6 `chmod 0o755` ignores ACLs, RT-EXP-6 default
+credential-pattern set lacks modern token formats (`sk-ant-`,
+`sk-proj-`, `hf_`, `r8_`), LOW-1 through LOW-6.
+
+### Tests
+
+- 266 → **296 Python unit tests** (30 new — adversarial coverage
+  for each closed finding, plus the symlink-equivalent-content
+  edge case CR flagged on PR #21).
+- 100 bun adversarial tests on main, all green.
+- LongMemEval markdown tier R@5 = 81.06% — **identical to
+  v2.0.0-alpha** (no retrieval regression from the audit fixes).
+
+### What CodeRabbit's 18+ pre-merge rounds did NOT catch
+
+Trust-transition gaps. CR is excellent at "is this code well-
+written?" and weak at "is the contract this code claims to
+enforce actually enforced?" CRIT-1, CRIT-2, HIGH-1, HIGH-3,
+HIGH-4 all compiled cleanly, lint-cleanly, and reviewed cleanly
+through ~18 CR rounds during v2.0.0-alpha development. The
+parallel defender + offensive audit caught every one. Static
+analysis is not a substitute for threat modelling; both are
+required.
 
 ## [2.0.0-alpha] — 2026-04-29
 
