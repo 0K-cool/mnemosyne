@@ -260,6 +260,37 @@ class TestGenerateHook(unittest.TestCase):
         self.assertIn(r"$'logs/sh-test.jsonl'", hook_source)
         self.assertIn(r'"$PAI_DIR/"', hook_source)
 
+    def test_force_push_guard_normalizes_refs_tags_and_remotes(self):
+        """v2.0.0 audit (RT-EXP-2) — force-push guard must reject refspecs that
+        bypass the original refs/heads-only normalization.
+
+        Pre-fix: ``git push --force origin HEAD:refs/tags/main`` and
+        ``git push --force origin HEAD:refs/remotes/origin/main`` both
+        bypassed the guard because ``normalizeBranchName`` only stripped
+        ``refs/heads/``. The bypassed refspecs reach the same object
+        history as ``main`` itself.
+        """
+        md = (
+            "---\n"
+            "name: fp-test\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            "  pattern: 'git push --force'\n"
+            "  hook: .claude/hooks/auto/fp.ts\n"
+            "  generated_from: memory/fp.md\n"
+            "  audit_log: logs/fp.jsonl\n"
+            "  template: force-push-guard.ts.template\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # All three normalization branches must be present in the rendered hook.
+        self.assertIn("refs/heads/", hook_source)
+        self.assertIn("refs/tags/", hook_source)
+        self.assertIn("refs/remotes/", hook_source)
+        # The audit issue ID is present so future readers can trace the fix.
+        self.assertIn("RT-EXP-2", hook_source)
+
     def test_safe_for_ts_string_escapes_quote_meta(self):
         """The new sanitiser must produce a JS string literal that survives
         any input — defense-in-depth even if the schema layer is bypassed."""
