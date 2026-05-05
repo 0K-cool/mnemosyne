@@ -160,42 +160,72 @@ of the MEDIUMs. v1.1.1 is scoped for the remainder.
 
 ### Trust boundaries
 
-The v2 enforcement chain has FOUR trust transitions, each of which
-can fail independently:
+The v2 enforcement chain has four trust transitions (T1–T4),
+each of which can fail independently:
 
 ```text
 operator  →  memory entry  →  generator  →  hook source  →  tool boundary
-   (1)         (2)              (3)            (4)              (5)
+   N1            N2              N3              N4              N5
+        T1            T2              T3              T4
 ```
 
-- **(1) → (2)**: trust the operator wrote a sane `enforce:` block.
-  Mitigations: `validate_enforce_block` rejects unknown tools,
-  bad regex, path traversal, hook outside `.claude/hooks/auto/`.
-- **(2) → (3)**: trust the memory file hasn't been tampered with
-  between authoring and generation. Mitigations: same read-time
-  scanner (`lib/content_scanner.py`) that protects v1.1.x retrieval.
-- **(3) → (4)**: trust the generator emits safe code regardless of
-  what the memory entry says. Mitigations: `_safe_for_comment`,
-  placeholder-residue check, JSON-quoted regex round-trip,
-  language-aware `PATTERN_SH` ANSI-C quoting.
-- **(4) → (5)**: trust the rendered hook does what the rule
-  intended at the actual tool-call boundary. Mitigations: bun-build
-  / `compile()` / `bash -n` smoke tests at generation time;
-  template-level hardening (no-shell process spawn, fail-closed
-  on credential-leak, audit-path discipline).
+- **T1 (N1 → N2)**: trust the operator wrote a sane `enforce:`
+  block. Generation-time validation: `validate_enforce_block`
+  ([`lib/enforce/schema.py`](lib/enforce/schema.py)) rejects
+  unknown tools, bad regex, path traversal, hook outside
+  `.claude/hooks/auto/`. Introduced in PR #8.
+- **T2 (N2 → N3)**: trust the memory file hasn't been tampered
+  with between authoring and retrieval. **Note:**
+  `lib/content_scanner.py` runs at *retrieval time* (invoked by
+  `hooks/auto-retrieve.py`), not during hook generation. It is a
+  separate, post-generation retrieval-time control — not a
+  generation-time guarantee. The generation-time mitigations for
+  this transition are the schema validators above (T1) plus the
+  `_safe_for_comment` / JSON-safe quoting at T3.
+- **T3 (N3 → N4)**: trust the generator emits safe code regardless
+  of what the memory entry says. Mitigations:
+  `_safe_for_comment`, placeholder-residue check, JSON-quoted
+  regex round-trip, language-aware `PATTERN_SH` ANSI-C quoting
+  (all in
+  [`lib/enforce/generator.py`](lib/enforce/generator.py)).
+  Hardened across PRs #14, #15, #17, #18.
+- **T4 (N4 → N5)**: trust the rendered hook does what the rule
+  intended at the actual tool-call boundary. Mitigations:
+  bun-build / `compile()` / `bash -n` smoke tests at generation
+  time; template-level hardening (no-shell process spawn,
+  fail-closed on credential-leak, audit-path discipline). Per-
+  template files in
+  [`templates/hooks/`](templates/hooks/).
 
-[TODO Saturday: diagram these four transitions; for each, list
-the failure modes the audit needs to validate are closed.]
+[TODO Saturday: for each of T1-T4, list the failure modes the
+audit needs to validate are closed; produce a transition-id
+table mapping audit findings back to the responsible boundary.]
 
 ### Per-template threat surface
 
 #### `cr-prepush-guard.ts.template`
 
-[TODO Saturday: cache poisoning — what stops a tampered
-`.claude/cache/cr-prepush-*.json` file from satisfying the
-freshness window without a real review? Document the cache
-trust boundary explicitly. Existing mitigations: `freshness_secs`
-expiry; SHA-256 of HEAD bound to cache key.]
+**Cache trust policy:** `.claude/cache/cr-prepush-*.json` files
+are **untrusted** and must be validated on every load. Required
+behavior:
+
+1. Read the stored HEAD SHA-256 from the cache file.
+2. Recompute the current `git rev-parse HEAD` SHA-256.
+3. On mismatch → reject the cache (fail-closed) and re-run the
+   review pipeline.
+4. On match but `mtime > freshness_secs` → reject and re-run.
+5. Treat all values inside the cache file as attacker-controlled
+   (no shell interpolation, no path interpolation, no
+   regex-without-escaping).
+
+This closes the classic TOCTOU / stale-trust failure mode: even
+if an attacker writes a forged cache file with a long
+`freshness_secs`, the HEAD-binding makes it useless after any
+`git commit` or `git checkout`.
+
+[TODO Saturday: confirm `cr-prepush-guard.ts.template` implements
+all five checks; add a unit test that mutates a cache file's
+HEAD field and verifies fail-closed behavior.]
 
 [TODO Saturday: `git diff` invocation — confirm no shell-string
 form anywhere; verify args are constants.]
@@ -227,11 +257,27 @@ still high-confidence in 2026? GitHub PAT format changes; Stripe
 key formats; new tokens (Cohere, Together AI, etc.). Annotate
 each pattern with its source-of-truth doc.]
 
-[TODO Saturday: file-path scope filter — what stops an attacker
-from writing credentials via `MultiEdit` to a path that doesn't
-match the operator's `pattern` regex? E.g. operator scopes
-`pattern: '\\.env$'`, attacker writes to `.envrc`. Document
-recommendation: scope to `.*` for a true defense-in-depth posture.]
+**Pattern-scoping tradeoff (operator guidance):**
+
+The `pattern` field scopes which file paths the credential-leak
+hook inspects. Operator choice has direct security/UX
+consequences:
+
+| Scope | Coverage | Trade-off |
+|-------|----------|-----------|
+| `pattern: '.*'` | Maximum (every Edit/Write/MultiEdit) | Most false positives; UX friction on every keystroke; recommended for high-assurance environments |
+| Targeted (e.g. `\\.env$`) | Operator-anticipated paths only | Attackers writing to adjacent paths (`.envrc`, `.env.local`, `secrets.txt`) bypass the guard |
+| Tiered | Broad pattern + per-tool overrides | Best balance — broad on `Write`, narrower on `Edit` to limit FP rate during in-place editing |
+
+**Recommended default:** broad-but-not-everything — match common
+secret-bearing path shapes (`\\.env`, `\\.envrc`, `secrets`,
+`credentials`, `\\.aws/`, `\\.ssh/`) rather than either extreme.
+Tune per environment based on the block-rate observed in the
+audit log.
+
+[TODO Saturday: ship a curated default-pattern bundle in the
+schema so operators don't have to hand-roll a path filter to get
+defense-in-depth out of the box.]
 
 ### Generator-side threats
 
@@ -283,23 +329,36 @@ are **out of scope for v2**. Operators who need defense against
 them must layer additional infrastructure (Cedar policies,
 SubagentStop hook, at-mention guard — see PAI's L1 / L19).
 
+> **Operator requirement:** do **not** rely on the bypass-status
+> notes below unless you have verified them against your deployed
+> Claude Code version and pinned that version in your operating
+> environment. The May 2 audit (Phase 1) will produce an appendix
+> pinning verified behaviour for **Claude Code v2.1.128** (current
+> at time of writing). Operators on later versions must re-verify
+> before trusting the listed status — Claude Code hook semantics
+> have changed mid-release in the past.
+
 - **Subagent tool calls** — Claude Code issue
   [#21460](https://github.com/anthropics/claude-code/issues/21460).
   Task/Agent dispatch bypasses ALL PreToolUse hooks. v2 hooks
   are PreToolUse → bypassed entirely when the agent spawns a
-  subagent.
+  subagent. **v2.1.128 status:** open, no upstream fix; verify
+  per-deployment.
 - **MCP tool calls** — Claude Code issues
   [#3514](https://github.com/anthropics/claude-code/issues/3514) /
   [#4669](https://github.com/anthropics/claude-code/issues/4669).
-  Both CLOSED but unconfirmed; verify on current Claude Code
-  release before relying on PreToolUse to gate MCP.
+  Both CLOSED upstream but unconfirmed in production.
+  **v2.1.128 status:** to be re-verified by the May 2 appendix;
+  do not trust until confirmed.
 - **`@file` mentions** — Claude Code issue
   [#35147](https://github.com/anthropics/claude-code/issues/35147).
-  CLOSED; mitigated upstream in Claude Code itself, but operators
-  on older versions still bypassable.
+  CLOSED upstream. **v2.1.128 status:** to be re-verified by the
+  May 2 appendix; operators on Claude Code older than the upstream
+  fix release remain bypassable.
 
-[TODO Saturday: confirm current Claude Code release behaviour
-for each of these and document version-pinned status.]
+[TODO Saturday: produce the version-pinned appendix — verified
+behaviour table for v2.1.128, plus a documented re-verification
+protocol for operators upgrading past that pin.]
 
 ### Mitigations already in place (per-PR audit lessons)
 
@@ -386,8 +445,8 @@ and shipped as fixes — Saturday audit should confirm they hold:
 #### Phase 2 — Three-plugin interop test (~1-2h)
 
 The 0K stack composition (0K-RAG + 0K-Talon + Mnemosyne) is
-documented as pairwise-compatible, but the three-way combo on a
-clean install hasn't been formally tested. This matters for
+documented as pairwise-compatible, but the three-way integration
+has not yet been validated on a clean install. This matters for
 operators (Kelvin specifically — installing on a fresh Win 11 Pro
 laptop in May 2026).
 
@@ -426,23 +485,43 @@ enforcement layer adds platform-sensitive code:
 - `_has_traversal()` already includes Windows drive-letter detection
   (`C:\\`, `D:/`) but the unit tests run on macOS only.
 
-- [ ] On the Win 11 Pro laptop: install bun, python 3.13, jq.
-- [ ] Run the schema/generator unit tests under Win Python:
-      `python -m unittest discover -s tests` — confirm
-      Windows path-separator handling doesn't trip the
-      traversal guard or the audit-log write.
-- [ ] Generate one hook via `python -m enforce` and confirm
-      the rendered file:
-      1. Has the right shebang for Windows (`#!/usr/bin/env bun`
-         + Git Bash / WSL works; cmd.exe doesn't — document).
+> **Authoritative commands:** the canonical entrypoints live in
+> [`README.md`](README.md) (Install, Test Suite sections) and
+> [`Makefile`](Makefile). The commands below are the verified
+> macOS forms — Windows operators must adapt path separators and
+> shell quoting and confirm against those two files before
+> trusting any output.
+
+- [ ] On the Win 11 Pro laptop: install bun, python 3.13+, jq
+      (verify via `bun --version`, `python3 --version`,
+      `jq --version`).
+- [ ] Run the full test matrix under Windows Python (per
+      `Makefile` `test` target):
+      `python3 -m unittest discover -s tests -p "test_*.py" -v`
+      and `bun test ./tests/test_memory_validation.test.ts`.
+      Confirm Windows path-separator handling doesn't trip
+      `_has_traversal()`, the `_validate_path_safe` guard, or the
+      audit-log write.
+- [ ] Generate one hook via
+      `PYTHONPATH=lib python3 -m enforce --memory-dir <path> --output-dir <path>`
+      (canonical form per `README.md` line 111) and confirm the
+      rendered file:
+      1. Has the verified shebang from
+         `templates/hooks/*.template`: TS templates emit
+         `#!/usr/bin/env bun`; Python templates emit
+         `#!/usr/bin/env python3`; shell templates emit
+         `#!/usr/bin/env bash`. cmd.exe cannot honour any of
+         these directly — document Git Bash / WSL2 as the
+         supported shells.
       2. The audit-path resolution `..`/`..`/`..` works under
          Windows path semantics (forward slash vs backslash).
 - [ ] Confirm Claude Code on Windows actually loads
       `.claude/hooks/auto/` and spawns the generated hook with
-      the right interpreter.
-- [ ] If the shell template doesn't work cleanly under Windows,
+      the right interpreter (verify against Claude Code v2.1.128
+      hook-loading logs; later versions must be re-verified).
+- [ ] If any template doesn't work cleanly under Windows,
       document the limitation in the README + raise a Phase 5.x
-      issue for "Windows-native shell port (PowerShell)?".
+      issue (e.g. "Windows-native shell port (PowerShell)?").
 
 #### Phase 4 — Release v2.0.0 (non-alpha) (~30 min)
 
