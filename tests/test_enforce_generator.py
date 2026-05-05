@@ -149,6 +149,193 @@ class TestGenerateHook(unittest.TestCase):
         hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
         _assert_bun_build_clean(self, hook_source)
 
+    def test_cr_prepush_hook_includes_cache_mtime_check(self):
+        """v2.0.0 audit (HIGH-1) — cache freshness must require mtime, not just JSON ts.
+
+        Pre-fix the template only checked ``entry.ts`` from inside the cache
+        JSON. An attacker who could write the cache file forged ``ts: <now>``
+        and bypassed the gate. Post-fix the template additionally calls
+        ``statSync(CACHE_PATH).mtimeMs`` and requires both gates fresh.
+        """
+        fixture_path = FIXTURE_DIR / "cr-prepush-rule.md"
+        md = fixture_path.read_text()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+
+        # The mtime-based defense must appear in the rendered hook.
+        self.assertIn("statSync", hook_source)
+        self.assertIn("getCacheMtimeMs", hook_source)
+        self.assertIn("mtimeMs", hook_source)
+        # Both gates must be combined with AND, not OR — either alone is
+        # forgeable. The freshness allow-decision must require both.
+        self.assertRegex(
+            hook_source,
+            r"tsAgeSec\s*<\s*FRESHNESS_SECS\s*&&\s*mtimeAgeSec\s*<\s*FRESHNESS_SECS",
+        )
+
+    def test_rendered_ts_hooks_use_json_encoded_audit_path(self):
+        """v2.0.0 audit (HIGH-3) — TS templates use the JSON-encoded form,
+        not single-quoted string literal interpolation, for AUDIT_LOG_PATH.
+
+        Pre-fix the templates contained ``join(PAI_DIR, '{{AUDIT_LOG_PATH}}')``
+        — a single-quoted TS string literal that could be escaped by a
+        value containing ``'``. The schema-layer allow-list (CRIT-1
+        primary fix) blocks the value at validation, but defense-in-
+        depth requires the render path to JSON-encode regardless. This
+        test enforces that contract.
+        """
+        # Render each TS template and check it does NOT contain the old
+        # single-quoted form, and DOES contain the join(...) call without
+        # wrapping quotes around the placeholder substitution.
+        cases = [
+            (".claude/hooks/auto/cr.ts", r"git push -u origin", None),
+            (".claude/hooks/auto/fp.ts", r"git push --force",
+             "force-push-guard.ts.template"),
+            (".claude/hooks/auto/bom.ts", r"rm -rf",
+             "block-on-match-guard.ts.template"),
+        ]
+        for hook, pattern, template in cases:
+            md_lines = [
+                "---", "name: t", "enforce:", "  tool: Bash",
+                f"  pattern: '{pattern}'", f"  hook: {hook}",
+                "  generated_from: memory/t.md",
+                "  audit_log: logs/operator-set.jsonl",
+            ]
+            if template:
+                md_lines.append(f"  template: {template}")
+            md_lines.extend(["---", "Body."])
+            md = "\n".join(md_lines) + "\n"
+            hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+
+            # Old (vulnerable) form must NOT survive in any TS template.
+            self.assertNotIn(
+                "join(PAI_DIR, 'logs/operator-set.jsonl')",
+                hook_source,
+                f"{hook}: still using single-quoted literal — HIGH-3 not closed",
+            )
+            # New form: JSON-encoded path with double quotes from json.dumps.
+            self.assertIn(
+                'join(PAI_DIR, "logs/operator-set.jsonl")',
+                hook_source,
+                f"{hook}: missing JSON-encoded AUDIT_LOG_PATH_TS",
+            )
+
+    def test_rendered_py_hook_uses_json_encoded_audit_path(self):
+        """HIGH-3 — Python template uses JSON-encoded form, not double-quoted literal."""
+        md = (
+            "---\n"
+            "name: py-test\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            "  pattern: 'rm -rf'\n"
+            "  hook: .claude/hooks/auto/bom.py\n"
+            "  generated_from: memory/p.md\n"
+            "  audit_log: logs/py-test.jsonl\n"
+            "  language: py\n"
+            "  template: block-on-match-guard.py.template\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # New form: JSON-encoded with double quotes (json.dumps output).
+        self.assertIn('_PAI_DIR / "logs/py-test.jsonl"', hook_source)
+
+    def test_rendered_sh_hook_uses_ansi_c_quoted_audit_path(self):
+        """HIGH-3 — Shell template uses ANSI-C ``$'...'`` form."""
+        md = (
+            "---\n"
+            "name: sh-test\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            "  pattern: 'rm -rf'\n"
+            "  hook: .claude/hooks/auto/bom.sh\n"
+            "  generated_from: memory/s.md\n"
+            "  audit_log: logs/sh-test.jsonl\n"
+            "  language: sh\n"
+            "  template: block-on-match-guard.sh.template\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # New form: shell concat of "$PAI_DIR/" with ANSI-C $'...'.
+        self.assertIn(r"$'logs/sh-test.jsonl'", hook_source)
+        self.assertIn(r'"$PAI_DIR/"', hook_source)
+
+    def test_force_push_guard_normalizes_refs_tags_and_remotes(self):
+        """v2.0.0 audit (RT-EXP-2) — force-push guard must reject refspecs that
+        bypass the original refs/heads-only normalization.
+
+        Pre-fix: ``git push --force origin HEAD:refs/tags/main`` and
+        ``git push --force origin HEAD:refs/remotes/origin/main`` both
+        bypassed the guard because ``normalizeBranchName`` only stripped
+        ``refs/heads/``. The bypassed refspecs reach the same object
+        history as ``main`` itself.
+        """
+        md = (
+            "---\n"
+            "name: fp-test\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            "  pattern: 'git push --force'\n"
+            "  hook: .claude/hooks/auto/fp.ts\n"
+            "  generated_from: memory/fp.md\n"
+            "  audit_log: logs/fp.jsonl\n"
+            "  template: force-push-guard.ts.template\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # All three normalization branches must be present in the rendered hook.
+        self.assertIn("refs/heads/", hook_source)
+        self.assertIn("refs/tags/", hook_source)
+        self.assertIn("refs/remotes/", hook_source)
+        # The audit issue ID is present so future readers can trace the fix.
+        self.assertIn("RT-EXP-2", hook_source)
+
+    def test_safe_for_ts_string_escapes_quote_meta(self):
+        """The new sanitiser must produce a JS string literal that survives
+        any input — defense-in-depth even if the schema layer is bypassed."""
+        from enforce.generator import _safe_for_ts_string
+
+        # Each of these would have escaped a single-quoted TS string in
+        # the pre-fix template. The encoded form is double-quoted JSON.
+        for payload in ["'); evil(); ('", '" + evil() + "', "`${evil()}`",
+                        "\\u0027 evil", "\nevil()"]:
+            encoded = _safe_for_ts_string(payload)
+            # The encoded form starts and ends with the surrounding quotes.
+            self.assertTrue(encoded.startswith('"'))
+            self.assertTrue(encoded.endswith('"'))
+            # No bare single quote that would close a `'…'` template literal.
+            # (json.dumps does not escape single quotes — they are safe inside
+            # double-quoted JSON strings, and the TS template no longer
+            # surrounds the placeholder with single quotes.)
+
+    def test_cr_prepush_hook_audit_path_is_operator_configurable(self):
+        """v2.0.0 audit (RT-EXP-4) — audit_log: setting must reach the rendered hook.
+
+        Pre-fix the cr-prepush template hardcoded ``join(PAI_DIR, 'logs',
+        'cr-prepush-enforcement.jsonl')`` while every other template used
+        ``{{AUDIT_LOG_PATH}}``. An operator setting ``audit_log:`` was
+        silently ignored for cr-prepush only. Post-fix all four templates
+        consistently honour the operator's choice.
+        """
+        md = (
+            "---\n"
+            "name: cr-rule\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "git push -u origin"\n'
+            "  hook: .claude/hooks/auto/cr-prepush.ts\n"
+            "  generated_from: memory/cr.md\n"
+            "  audit_log: logs/operator-chose-this.jsonl\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # Operator's choice must land in the rendered AUDIT_PATH.
+        self.assertIn("logs/operator-chose-this.jsonl", hook_source)
+        # The pre-fix hardcoded path must NOT survive.
+        self.assertNotIn("'logs', 'cr-prepush-enforcement.jsonl'", hook_source)
+
     def test_missing_enforce_block_raises(self):
         md = (
             "---\n"
@@ -160,16 +347,21 @@ class TestGenerateHook(unittest.TestCase):
         with self.assertRaises(GenerationError):
             generate_hook(md, template_dir=TEMPLATE_DIR)
 
-    def test_newline_in_comment_param_does_not_inject_code(self):
-        """A memory entry can't break out of `// comment` slots in the template.
+    def test_newline_in_comment_param_rejected_at_schema_layer(self):
+        """A memory entry can't reach the generator with newline-bearing paths.
 
-        Defense-in-depth: even if a malicious memory entry sets generated_from
-        to a value containing newlines (or U+2028 / U+2029 — JS line
-        terminators), the substituted value must stay on one line. We verify
-        two ways:
-          1. No raw newline + JS statement appears outside a comment / string.
-          2. The generated hook still compiles cleanly under `bun build`
-             (the real invariant — if injection worked, bun would error).
+        Pre-v2.0.0 (audit branch): the schema only checked path traversal.
+        Newline-bearing values flowed to the generator, which relied on
+        ``_safe_for_comment`` to strip them before substitution into ``//``
+        comment slots. That defense was a single point of failure (CRIT-1
+        showed the same value can land in non-comment contexts).
+
+        v2.0.0 audit fix: the schema now applies a strict character allow-
+        list (letters, digits, dot, underscore, slash, hyphen) to
+        ``generated_from`` / ``hook`` / ``audit_log``. Values with newlines,
+        quotes, dollar signs, etc. are rejected at validation time —
+        before the generator ever sees them. This is the primary defense;
+        the generator's per-context sanitisers remain as defense-in-depth.
         """
         md = (
             "---\n"
@@ -182,16 +374,16 @@ class TestGenerateHook(unittest.TestCase):
             "---\n"
             "Body.\n"
         )
-        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # Schema rejection raises EnforceValidationError, which generate_hook
+        # surfaces unchanged — no GenerationError wrapper because the rejection
+        # happens before any template work begins.
+        from enforce.schema import EnforceValidationError
 
-        # Check 1: the literal newline-then-statement sequence must not appear.
-        # If it did, the value escaped its quoting (whether comment or string).
-        self.assertNotIn("\nprocess.exit", hook_source)
-
-        # Check 2: bun must still accept the source. A successful injection
-        # would corrupt syntax (mismatched quotes / unexpected statements);
-        # bun build returns non-zero. This is the strongest assertion.
-        _assert_bun_build_clean(self, hook_source)
+        with self.assertRaises(EnforceValidationError) as ctx:
+            generate_hook(md, template_dir=TEMPLATE_DIR)
+        # The error must clearly identify the offending field so operators
+        # can fix the rule rather than silently producing a no-op hook.
+        self.assertIn("generated_from", str(ctx.exception))
 
 
 class TestPhase2Injection(unittest.TestCase):

@@ -20,7 +20,10 @@ set -euo pipefail
 # Hook path is .claude/hooks/auto/<file>.sh — three `..` to reach repo root.
 HOOK_FILE="${BASH_SOURCE[0]}"
 PAI_DIR="${PAI_DIR:-$(cd "$(dirname "$HOOK_FILE")/../../.." && pwd)}"
-AUDIT_PATH="$PAI_DIR/{{AUDIT_LOG_PATH}}"
+# v2.0.0 audit (HIGH-3) — ANSI-C $'...' form makes shell metacharacters
+# literal. Adjacent quoted strings concatenate in bash:
+# "$PAI_DIR/" + $'logs/audit.jsonl' = $PAI_DIR/logs/audit.jsonl.
+AUDIT_PATH="$PAI_DIR/"{{AUDIT_LOG_PATH_SH}}
 PATTERN={{PATTERN_SH}}
 
 # jq is required for safe JSON extraction. Failing without it would
