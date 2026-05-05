@@ -25,7 +25,9 @@ const PAI_DIR =
   process.env.PAI_DIR ||
   // Hook path is .claude/hooks/auto/<file>.ts — three `..` to reach repo root.
   join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const AUDIT_PATH = join(PAI_DIR, '{{AUDIT_LOG_PATH}}');
+// v2.0.0 audit (HIGH-3) — JSON-encoded form expands to a quoted JS
+// string, so the surrounding single quotes are NOT in the template.
+const AUDIT_PATH = join(PAI_DIR, {{AUDIT_LOG_PATH_TS}});
 const PATTERN = new RegExp({{PATTERN_JSON}});
 const REPO_FILTER_RAW = {{REPO_FILTER_JSON}};
 const REPO_FILTER = REPO_FILTER_RAW ? new RegExp(REPO_FILTER_RAW, 'i') : null;

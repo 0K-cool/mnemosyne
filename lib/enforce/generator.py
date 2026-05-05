@@ -169,10 +169,59 @@ _PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_][A-Z0-9_]*)\}\}")
 _COMMENT_BREAK_RE = re.compile(r"[\r\n  ]+")
 
 
-def _safe_for_comment(value: object) -> str:
-    """Neutralise comment-breaking characters so a malicious memory entry
-    cannot inject TypeScript via a `//` line comment in the template."""
+def _safe_for_line_comment(value: object) -> str:
+    """Neutralise line-terminator characters so a malicious memory entry
+    cannot inject code by escaping a ``// …`` or ``# …`` line comment.
+
+    SCOPE: comment-line contexts only. Do NOT use this for values that
+    land inside string literals, template literals, or shell variable
+    expansions — the audit (HIGH-3) showed the four characters this
+    function strips are insufficient for those contexts. Use
+    ``_safe_for_ts_string`` / ``_safe_for_py_string`` /
+    ``_safe_for_shell_dollar_quote`` instead.
+    """
     return _COMMENT_BREAK_RE.sub(" ", str(value))
+
+
+# Backward-compat alias for any external importers; remove in v2.1.0.
+_safe_for_comment = _safe_for_line_comment
+
+
+def _safe_for_ts_string(value: object) -> str:
+    """Encode a value as a TypeScript / JavaScript string literal.
+
+    Returns the json.dumps form (with surrounding double quotes). The
+    template MUST NOT add its own quotes around the placeholder — the
+    encoded value already includes them. Equivalent to a JS string
+    literal: any quote, backslash, control char, or line terminator
+    inside the value is escaped, so the resulting source parses
+    cleanly under ``bun build`` regardless of the input.
+    """
+    return json.dumps(str(value))
+
+
+def _safe_for_py_string(value: object) -> str:
+    """Encode a value as a Python string literal.
+
+    json.dumps output is also a valid Python string literal (Python
+    accepts double-quoted strings with ``\\\\`` / ``\\n`` / ``\\uXXXX``
+    escapes the same way JSON does). Same template contract as
+    ``_safe_for_ts_string``: do not surround the placeholder with
+    additional quotes.
+    """
+    return json.dumps(str(value))
+
+
+def _safe_for_shell_dollar_quote(value: object) -> str:
+    """Encode a value as a bash ANSI-C ``$'...'`` quoted string.
+
+    Inside ``$'...'``, ``$`` and backticks are literal — regex
+    metacharacters and shell metacharacters round-trip without
+    expansion. The only chars that need escaping are backslash and
+    single-quote. Same template contract: no surrounding quotes in
+    the template — the encoded form already provides ``$'...'``.
+    """
+    return "$'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
 def _render(template_text: str, params: dict[str, str]) -> str:
@@ -289,26 +338,41 @@ def generate_hook(md: str, template_dir: Path) -> str:
         # Phase 5: shell-safe form for the .sh.template port. Uses
         # bash ANSI-C quoting `$'...'` — `$` and backticks are literal
         # inside it, so regex metacharacters round-trip without
-        # shell-level mangling. We escape `\` and `'` only.
-        "PATTERN_SH": (
-            "$'"
-            + enforce["pattern"].replace("\\", "\\\\").replace("'", "\\'")
-            + "'"
-        ),
+        # shell-level mangling. v2.0.0 audit CR follow-up: routed
+        # through `_safe_for_shell_dollar_quote` so the escaping logic
+        # has a single source of truth (was previously duplicated here).
+        "PATTERN_SH": _safe_for_shell_dollar_quote(enforce["pattern"]),
         "REPO_FILTER_JSON": json.dumps(enforce.get("repo_filter", "")),
         "FRESHNESS_SECS": str(enforce["freshness_secs"]),
-        "GENERATED_FROM": _safe_for_comment(enforce["generated_from"]),
-        "HOOK_PATH": _safe_for_comment(enforce["hook"]),
-        "AUDIT_LOG_PATH": _safe_for_comment(enforce["audit_log"]),
-        "GENERATOR_VERSION": _safe_for_comment(
+        # v2.0.0 audit (HIGH-3) — these go into LINE COMMENT contexts only
+        # (header banners, ``// Source memory entry: …``). Strict-allow-
+        # list at the schema layer guarantees the values are bare paths
+        # without quote/meta characters; this sanitiser only neutralises
+        # line terminators that would otherwise escape the comment.
+        "GENERATED_FROM": _safe_for_line_comment(enforce["generated_from"]),
+        "HOOK_PATH": _safe_for_line_comment(enforce["hook"]),
+        "AUDIT_LOG_PATH": _safe_for_line_comment(enforce["audit_log"]),
+        "GENERATOR_VERSION": _safe_for_line_comment(
             enforce.get("generator_version", GENERATOR_VERSION)
         ),
-        "GENERATED_AT": _safe_for_comment(
+        "GENERATED_AT": _safe_for_line_comment(
             enforce.get(
                 "generated_at",
                 datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             )
         ),
+        # v2.0.0 audit (HIGH-3) — context-specific encodings of the same
+        # values, for placement inside string-literal contexts in the
+        # rendered hook source. Templates that use these MUST NOT add
+        # surrounding quotes — the encoded form already provides them.
+        # Defense-in-depth on top of the schema-layer allow-list (CRIT-1
+        # primary fix).
+        "AUDIT_LOG_PATH_TS": _safe_for_ts_string(enforce["audit_log"]),
+        "AUDIT_LOG_PATH_PY": _safe_for_py_string(enforce["audit_log"]),
+        "AUDIT_LOG_PATH_SH": _safe_for_shell_dollar_quote(enforce["audit_log"]),
+        "GENERATED_FROM_TS": _safe_for_ts_string(enforce["generated_from"]),
+        "GENERATED_FROM_PY": _safe_for_py_string(enforce["generated_from"]),
+        "GENERATED_FROM_SH": _safe_for_shell_dollar_quote(enforce["generated_from"]),
         "INJECT_BLOCK": inject_block,
         "INJECT_CALL": inject_call,
         # Phase 4.1: default applied here so the schema stays template-agnostic.

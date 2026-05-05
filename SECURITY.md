@@ -25,13 +25,12 @@ Security fixes land on the **latest minor** release.
 > enforcement layer (`enforce:` block + hook generator). The
 > retrieval, write-time validation, and read-time scanner layers
 > from v1.1.x are unchanged and retain their full security
-> guarantees. The v2.0.0-alpha enforcement generator has its own
-> threat surface (template injection, audit-log tampering,
-> hook-path traversal) — those are validated by the schema +
-> generator unit tests but have not yet been audited by an external
-> defender + offensive pass the way v1.1.0 was. Expect a
-> SECURITY.md v2 section + audit findings appendix in v2.0.0
-> (non-alpha).
+> guarantees. The v2.0.0-alpha enforcement generator was audited
+> in May 2026 — 2 CRITICAL + 4 HIGH findings closed in v2.0.0
+> (this branch); see "Phase 1 audit findings" below for the
+> closure log and known residuals. **Operators on v2.0.0-alpha
+> should upgrade to v2.0.0 once it ships** — alpha is no longer
+> the recommended track.
 
 ## Threat model
 
@@ -538,6 +537,72 @@ enforcement layer adds platform-sensitive code:
       `gh release create v2.0.0 --latest`.
 - [ ] Promote v2.0.0 to "Latest" badge on GitHub.
 - [ ] Discord notify.
+
+### Phase 1 audit findings (executed May 5, 2026)
+
+The parallel defender + offensive audit pass surfaced **2 CRITICAL, 4
+HIGH, 6 MEDIUM, 6 LOW** findings (defender) plus a complementary
+red-team pass that confirmed the HIGH-1 cache-poisoning exploit and
+added five additional MEDIUM-class issues. Reports archived at
+`output/research/mnemosyne-v2-audit-defender-2026-05-05.md` and
+`output/research/mnemosyne-v2-audit-redteam-2026-05-05.md`.
+
+**Closed in v2.0.0 (CRIT + HIGH bundle):**
+
+| ID | Title | Closing commit |
+|----|-------|----------------|
+| **CRIT-1** | Template-injection RCE via `audit_log` field | schema strict allow-list (commit `c032089`) + per-context sanitisers (commit `fe81605`) |
+| **CRIT-2** | Symlink-follow arbitrary file overwrite + chmod | atomic write-then-rename + symlink pre-check (commit `fc60eaf`) |
+| **HIGH-1** | cr-prepush cache trust violated documented policy (no mtime check) | `statSync(CACHE_PATH).mtimeMs` AND-combined with JSON `entry.ts` (commit `d3ba844`) |
+| **HIGH-2** | ReDoS via attacker-controlled `pattern` / `repo_filter` / `credential_patterns` | nested-quantifier rejection + 512-byte cap (commit `c032089`) |
+| **HIGH-3** | `_safe_for_comment` did not protect non-comment string-literal contexts | rename + three context-specific sanitisers + template re-quoting (commit `fe81605`) |
+| **HIGH-4** | Empty-string regex test bypassed `block-on-match` for non-Bash tools | schema cross-field check rejecting incompatible (template, tool) pairs (commit `c032089`) |
+| **RT-EXP-2** | force-push-guard bypass via `refs/tags/` and `refs/remotes/` refspecs | `normalizeBranchName` extended to strip both prefixes (commit `1d988f8`) |
+| **RT-EXP-4** | cr-prepush hardcoded audit path (silently ignored `audit_log:` setting) | replaced with `{{AUDIT_LOG_PATH_TS}}` to match the other three templates (commit `d3ba844`) |
+
+Test coverage for each fix lives next to it (test class names mirror
+the finding IDs). 294 Python + 100 bun tests on main, all green.
+
+**Known residuals — scoped for v2.0.1:**
+
+The following were classified MED or LOW and are documented here as
+operator-facing residual risk rather than blocked release. None are
+exploitable to a state worse than the operator's existing trust
+posture (see "Threat model" §A1–A4).
+
+- **MED-1** — idempotent-skip regex matches only `// Generated at:`
+  comments; Python `#` and shell `#` hooks are rewritten on every
+  `mnemosyne enforce` run, churning mtime.
+- **MED-2** — `--output-dir` override silently bypasses the
+  `HOOK_PATH_PREFIX` schema check; treat the override as the trust
+  boundary for that flag.
+- **MED-3** — TOCTOU race window between `O_TRUNC` and write
+  completion can show an empty hook to Claude Code if it reads the
+  file mid-window. Closed for the symlink-follow class by CRIT-2's
+  atomic-rename fix; the empty-window class still applies if a hook
+  is read between rename calls.
+- **MED-4** — `*.audit.jsonl` sidecar suffix is exempt from orphan
+  detection; an attacker who can drop a hook-output file can also
+  drop sidecar files that the audit aggregator then ingests.
+- **MED-5** — audit aggregator silently skips `JSONDecodeError` on
+  torn lines; warning to stderr would surface a missing-events
+  signal.
+- **MED-6** — `chmod 0o755` is hardcoded; ACL-restricted environments
+  may report success while the ACL still denies.
+- **RT-EXP-6** — credential-leak default 8-pattern set does not
+  cover modern token formats (`sk-ant-`, `sk-proj-`, `hf_`, `r8_`).
+  Operators on AI-tool deployments should extend
+  `credential_patterns:` explicitly.
+- **LOW-1 … LOW-6** — see defender report. None exploitable to
+  arbitrary code execution; documented for completeness.
+
+**What CodeRabbit's 18+ pre-merge review rounds did NOT catch:**
+trust-transition gaps. CR is excellent at "is this code well-written?"
+and weak at "is the contract this code claims to enforce actually
+enforced?" The audit caught CRIT-1, CRIT-2, HIGH-1, HIGH-3, HIGH-4 —
+all of which compiled cleanly, lint-cleanly, and reviewed cleanly,
+but allowed an operator-tier attacker to escape the sandbox. Static
+analysis is not a substitute for threat modelling; both are required.
 
 ## Disclosure policy
 

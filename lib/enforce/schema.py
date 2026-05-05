@@ -82,6 +82,33 @@ _WINDOWS_DRIVE_LETTER_RE = re.compile(r"^[A-Za-z]:[\\/]")
 #   (?aiLmsux…)   Python inline flag block  — JS only honours i/m/s/d/u/y/v
 _PY_ONLY_REGEX_FORMS = re.compile(r"\(\?P[<=]|\(\?[aiLmsux]+[):]")
 
+# v2.0.0 audit (CRIT-1) — strict character allow-list for path fields used
+# in generated hook source. Disallows any character that could escape a
+# string-literal context in TS / Python / shell (quotes, $, backticks,
+# parens, semicolons, whitespace, control chars, Unicode confusables).
+_PATH_STRICT_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
+_PATH_MAX_BYTES = 256
+
+# v2.0.0 audit (HIGH-2) — pattern length cap and catastrophic-backtracking
+# detection. Both gates are conservative — they catch the highest-frequency
+# ReDoS shapes without trying to be a full regex complexity analyser.
+_PATTERN_MAX_BYTES = 512
+# Nested unbounded quantifiers: an inner quantifier (`+`, `*`, `?`,
+# `{n,}`) closes a group, and an outer quantifier follows the closing
+# paren. Inner `?` matters because `(a?)+` against a non-matching
+# string also catastrophically backtracks — each empty match expands
+# the outer `+`. Inner `{n,}` is the bounded-but-unbounded form.
+# Catches: (a+)+, (a*)+, (.+)+, (.*)+x, ((a+)+)+, (a+){2,5},
+#          (a?)+, (a{1,})+, (a{2,5})*, etc.
+_NESTED_QUANTIFIER_RE = re.compile(r"[+*?}]\s*\)\s*[+*?{]")
+
+# v2.0.0 audit (HIGH-4) — the block-on-match-guard.* templates inspect
+# tool_input.command, which only exists on the Bash tool. Pairing them
+# with Edit / Write / Read / etc. produces a hook that silently never
+# fires. Reject the combination at validation time.
+_BLOCK_ON_MATCH_GUARD_RE = re.compile(r"^block-on-match-guard\.(ts|py|sh)\.template$")
+_BLOCK_ON_MATCH_REQUIRED_TOOLS = frozenset({"Bash"})
+
 
 def _has_traversal(path: str) -> bool:
     r"""True if a relative path contains traversal segments or is absolute.
@@ -109,6 +136,50 @@ def _validate_path_safe(path: str, label: str) -> None:
         )
 
 
+def _validate_path_strict_chars(path: str, label: str) -> None:
+    """Strict character allow-list + byte-length cap for path fields.
+
+    Tighter than ``_validate_path_safe`` — disallows any character that
+    could escape a string-literal context in TS / Python / shell source
+    (quotes, ``$``, backtick, parens, semicolons, whitespace, control
+    chars, Unicode confusables). The generator additionally JSON-encodes
+    these values when they cross into source code, so this is the
+    primary defense (validation-time block) plus defense-in-depth at
+    generation. v2.0.0 audit (CRIT-1) recommendation.
+    """
+    if len(path.encode("utf-8")) > _PATH_MAX_BYTES:
+        raise EnforceValidationError(
+            f"{label} exceeds {_PATH_MAX_BYTES} bytes"
+        )
+    if not _PATH_STRICT_RE.match(path):
+        raise EnforceValidationError(
+            f"{label} must match {_PATH_STRICT_RE.pattern} "
+            f"(letters, digits, dot, underscore, slash, hyphen only — no "
+            f"quotes, dollar signs, parens, or shell metas): {path!r}"
+        )
+
+
+def _validate_pattern_safety(pattern: str, label: str) -> None:
+    """Reject regex patterns that risk catastrophic backtracking / DoS.
+
+    Two conservative gates: a 512-byte length cap, and a nested-unbounded-
+    quantifier shape detector. v2.0.0 audit (HIGH-2) showed
+    ``re.compile()`` accepts ``^(a+)+$`` in microseconds, but
+    ``re.search('^(a+)+$', 'a'*30 + 'X')`` runs for 88 seconds. The same
+    shape DoSes V8 RegExp and grep ERE. We catch the most common shape
+    here; runtime templates additionally enforce a per-match timeout.
+    """
+    if len(pattern.encode("utf-8")) > _PATTERN_MAX_BYTES:
+        raise EnforceValidationError(
+            f"{label} exceeds {_PATTERN_MAX_BYTES} bytes"
+        )
+    if _NESTED_QUANTIFIER_RE.search(pattern):
+        raise EnforceValidationError(
+            f"{label} contains nested unbounded quantifiers "
+            f"(catastrophic backtracking risk): {pattern!r}"
+        )
+
+
 def validate_enforce_block(raw: Any) -> dict[str, Any]:
     """Validate and normalise an enforce block.
 
@@ -132,24 +203,27 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
             f"unknown tool {out['tool']!r}; allowed: {sorted(KNOWN_TOOLS)}"
         )
 
-    # pattern — must compile as a regex
+    # pattern — must compile as a regex, length-capped, no ReDoS shapes
     if not isinstance(out["pattern"], str):
         raise EnforceValidationError("pattern must be a string")
     try:
         re.compile(out["pattern"])
     except re.error as exc:
         raise EnforceValidationError(f"pattern is not a valid regex: {exc}") from exc
+    _validate_pattern_safety(out["pattern"], "pattern")
 
-    # hook — relative, no traversal, must live under .claude/hooks/auto/
+    # hook — relative, no traversal, strict allow-list, under .claude/hooks/auto/
     _validate_path_safe(out["hook"], "hook")
+    _validate_path_strict_chars(out["hook"], "hook")
     if not out["hook"].startswith(HOOK_PATH_PREFIX):
         raise EnforceValidationError(
             f"hook must live under {HOOK_PATH_PREFIX} (got: {out['hook']!r}); "
             "this convention marks files as auto-generated"
         )
 
-    # generated_from — relative, no traversal
+    # generated_from — relative, no traversal, strict allow-list
     _validate_path_safe(out["generated_from"], "generated_from")
+    _validate_path_strict_chars(out["generated_from"], "generated_from")
 
     # freshness_secs — positive int (strict; reject bools, floats, strings)
     raw_freshness = out.get("freshness_secs", DEFAULT_FRESHNESS_SECS)
@@ -163,7 +237,8 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
         )
     out["freshness_secs"] = raw_freshness
 
-    # audit_log — optional; default = next to the hook
+    # audit_log — optional; default = next to the hook. Strict-allow-list
+    # enforced regardless of source (operator-set or generator-derived).
     if "audit_log" in out:
         _validate_path_safe(out["audit_log"], "audit_log")
     else:
@@ -172,8 +247,9 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
         # which is fine — we just append .audit.jsonl to it.
         hook_stem = re.sub(r"\.[^./\\]+$", "", out["hook"])
         out["audit_log"] = hook_stem + ".audit.jsonl"
+    _validate_path_strict_chars(out["audit_log"], "audit_log")
 
-    # repo_filter — optional regex
+    # repo_filter — optional regex, length-capped, no ReDoS shapes
     if "repo_filter" in out:
         if not isinstance(out["repo_filter"], str):
             raise EnforceValidationError("repo_filter must be a string")
@@ -183,6 +259,7 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
             raise EnforceValidationError(
                 f"repo_filter is not a valid regex: {exc}"
             ) from exc
+        _validate_pattern_safety(out["repo_filter"], "repo_filter")
 
     # ---- Phase 4: optional explicit template selection ----
 
@@ -202,6 +279,20 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
         if _has_traversal(candidate) or "/" in candidate or "\\" in candidate:
             raise EnforceValidationError(
                 f"template must be a basename only (no path separators): {candidate!r}"
+            )
+
+        # v2.0.0 audit (HIGH-4) — block-on-match-guard.* templates inspect
+        # tool_input.command, which only exists on Bash. Pairing them with
+        # any other tool produces a hook that silently never fires.
+        if (
+            _BLOCK_ON_MATCH_GUARD_RE.match(candidate)
+            and out["tool"] not in _BLOCK_ON_MATCH_REQUIRED_TOOLS
+        ):
+            raise EnforceValidationError(
+                f"template {candidate!r} requires tool=Bash "
+                f"(it inspects tool_input.command which non-Bash tools "
+                f"don't expose); got tool={out['tool']!r}. Use a different "
+                f"template or change the tool."
             )
 
     # ---- Phase 2: action-time rule re-injection fields ----
@@ -294,6 +385,7 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
                 raise EnforceValidationError(
                     f"credential_patterns[{i}] is not a valid regex: {exc}"
                 ) from exc
+            _validate_pattern_safety(item, f"credential_patterns[{i}]")
             # Reject the most common Python-only regex constructs that
             # compile under `re` but throw under JS `new RegExp()`. We
             # don't try to be exhaustive (a full validator would need
