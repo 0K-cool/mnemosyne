@@ -452,5 +452,192 @@ class TestLanguageField(unittest.TestCase):
         self.assertEqual(result["language"], "ts")
 
 
+class TestPathStrictAllowList(unittest.TestCase):
+    """v2.0.0 audit (CRIT-1) — strict char allow-list on path fields.
+
+    The defender audit found that ``audit_log`` could carry quote / shell
+    metachar payloads that survived schema validation (only ``_has_traversal``)
+    and landed inside string-literal contexts in the rendered hook. Strict
+    allow-list closes the attack at the earliest layer.
+    """
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"git push",
+            "hook": ".claude/hooks/auto/g.ts",
+            "generated_from": "memory/x.md",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_audit_log_rejects_single_quote_injection(self):
+        """The CRIT-1 PoC payload must be rejected at validation time."""
+        # Payload from audit: closing single-quote terminates the TS string,
+        # then arbitrary code runs.
+        payload = ".claude/logs/x.jsonl'); console.error('PWNED'); ('"
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(self._base(audit_log=payload))
+        self.assertIn("audit_log", str(ctx.exception))
+
+    def test_audit_log_rejects_quote_meta_chars(self):
+        """Single quote, double quote, backtick, dollar, parens, semicolon."""
+        forbidden_chars = ["'", '"', "`", "$", "(", ")", ";", "&", "|", "\\"]
+        for ch in forbidden_chars:
+            with self.assertRaises(EnforceValidationError, msg=f"char {ch!r}"):
+                validate_enforce_block(
+                    self._base(audit_log=f".claude/logs/x{ch}.jsonl")
+                )
+
+    def test_audit_log_rejects_whitespace(self):
+        """Whitespace is forbidden in path fields."""
+        for ws in [" ", "\t", "\n", "\r"]:
+            with self.assertRaises(EnforceValidationError, msg=f"ws {ws!r}"):
+                validate_enforce_block(
+                    self._base(audit_log=f".claude/logs/x{ws}foo.jsonl")
+                )
+
+    def test_audit_log_rejects_unicode_confusables(self):
+        """Cyrillic / Greek / fullwidth characters are not allow-listed."""
+        for ch in ["а", "α", "ｆｏｏ", "​"]:
+            with self.assertRaises(EnforceValidationError, msg=f"ch {ch!r}"):
+                validate_enforce_block(
+                    self._base(audit_log=f".claude/logs/{ch}.jsonl")
+                )
+
+    def test_audit_log_rejects_control_chars(self):
+        """NUL and other C0 control chars are forbidden."""
+        for code in [0x00, 0x07, 0x1B, 0x7F]:
+            with self.assertRaises(EnforceValidationError, msg=f"code {code:#x}"):
+                validate_enforce_block(
+                    self._base(audit_log=f".claude/logs/x{chr(code)}.jsonl")
+                )
+
+    def test_audit_log_rejects_oversize_path(self):
+        """Paths > 256 bytes are rejected."""
+        long_path = ".claude/logs/" + "a" * 250 + ".jsonl"
+        # 13 + 250 + 6 = 269 bytes
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(self._base(audit_log=long_path))
+        self.assertIn("256 bytes", str(ctx.exception))
+
+    def test_audit_log_accepts_legitimate_path(self):
+        """Letters / digits / dots / underscores / slashes / hyphens pass."""
+        ok_path = ".claude/logs/cr-prepush_v2.audit.jsonl"
+        result = validate_enforce_block(self._base(audit_log=ok_path))
+        self.assertEqual(result["audit_log"], ok_path)
+
+    def test_hook_rejects_quote_meta_chars(self):
+        """Hook field gets the same strict allow-list."""
+        for ch in ["'", '"', "$", ";", " "]:
+            hook_with_meta = f".claude/hooks/auto/foo{ch}.ts"
+            with self.assertRaises(EnforceValidationError, msg=f"ch {ch!r}"):
+                validate_enforce_block(self._base(hook=hook_with_meta))
+
+    def test_generated_from_rejects_quote_meta_chars(self):
+        """generated_from field gets the same strict allow-list."""
+        for ch in ["'", '"', "$", ";", " "]:
+            gf_with_meta = f"memory/feedback{ch}.md"
+            with self.assertRaises(EnforceValidationError, msg=f"ch {ch!r}"):
+                validate_enforce_block(self._base(generated_from=gf_with_meta))
+
+
+class TestPatternSafetyAgainstReDoS(unittest.TestCase):
+    """v2.0.0 audit (HIGH-2) — catastrophic-backtracking detection.
+
+    re.compile() validates a pattern's syntax in microseconds, but the
+    same compiled pattern can take 88+ seconds to match against a
+    crafted input. The schema now rejects the highest-frequency ReDoS
+    shapes upfront and caps pattern byte-length.
+    """
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"git push",
+            "hook": ".claude/hooks/auto/g.ts",
+            "generated_from": "memory/x.md",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_pattern_rejects_audit_redos_payload(self):
+        """The HIGH-2 PoC payload — confirmed 88s match — must be blocked."""
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(self._base(pattern="^(a+)+$"))
+        self.assertIn("backtracking", str(ctx.exception).lower())
+
+    def test_pattern_rejects_classic_redos_shapes(self):
+        """All five canonical nested-quantifier shapes are rejected."""
+        for redos in [r"(a+)+", r"(.+)+", r"(.*)+x", r"(a*)+", r"((a+)+)+", r"(a+){2,5}"]:
+            with self.assertRaises(EnforceValidationError, msg=f"pattern {redos!r}"):
+                validate_enforce_block(self._base(pattern=redos))
+
+    def test_pattern_rejects_oversize(self):
+        """Patterns > 512 bytes are rejected."""
+        big = "a" * 600
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(self._base(pattern=big))
+        self.assertIn("512 bytes", str(ctx.exception))
+
+    def test_pattern_accepts_legitimate_quantifier(self):
+        """Single-level quantifiers (no nesting) pass."""
+        for ok in [r"a+", r"a*", r"a+b", r"git push", r".*\.env$", r"(?:a|b)c+"]:
+            result = validate_enforce_block(self._base(pattern=ok))
+            self.assertEqual(result["pattern"], ok)
+
+    def test_repo_filter_rejected_for_redos(self):
+        """repo_filter gets the same ReDoS check."""
+        with self.assertRaises(EnforceValidationError):
+            validate_enforce_block(self._base(repo_filter=r"^(a+)+$"))
+
+    def test_credential_patterns_rejected_for_redos(self):
+        """Each credential_patterns[i] is checked."""
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(self._base(
+                credential_patterns=[r"AKIA[0-9A-Z]{16}", r"^(a+)+$"]
+            ))
+        self.assertIn("credential_patterns[1]", str(ctx.exception))
+
+
+class TestBlockOnMatchToolCompatibility(unittest.TestCase):
+    """v2.0.0 audit (HIGH-4) — block-on-match-guard.* requires tool=Bash.
+
+    block-on-match-guard inspects ``tool_input.command``, which only Bash
+    exposes. Pairing the template with Edit / Write / Read / etc.
+    silently produces a hook that never fires — false sense of security.
+    """
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"rm -rf",
+            "hook": ".claude/hooks/auto/g.ts",
+            "generated_from": "memory/x.md",
+            "template": "block-on-match-guard.ts.template",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_block_on_match_with_bash_passes(self):
+        """The supported pairing — block-on-match + Bash — is valid."""
+        result = validate_enforce_block(self._base(tool="Bash"))
+        self.assertEqual(result["tool"], "Bash")
+
+    def test_block_on_match_rejects_non_bash_tools(self):
+        """Edit / Write / Read / Glob with block-on-match are rejected."""
+        for tool in ["Edit", "Write", "Read", "Glob", "MultiEdit", "Grep"]:
+            with self.assertRaises(EnforceValidationError, msg=f"tool {tool}") as ctx:
+                validate_enforce_block(self._base(tool=tool))
+            self.assertIn("tool=Bash", str(ctx.exception))
+
+    def test_block_on_match_check_applies_to_all_languages(self):
+        """ts/py/sh template variants all require tool=Bash."""
+        for lang in ["ts", "py", "sh"]:
+            tpl = f"block-on-match-guard.{lang}.template"
+            with self.assertRaises(EnforceValidationError, msg=f"lang {lang}"):
+                validate_enforce_block(self._base(template=tpl, tool="Edit"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
