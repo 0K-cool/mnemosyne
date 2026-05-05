@@ -26,7 +26,9 @@ from pathlib import Path
 
 # Hook path is .claude/hooks/auto/<file>.py — three `..` to reach repo root.
 _PAI_DIR = Path(os.environ.get("PAI_DIR") or Path(__file__).resolve().parents[3])
-AUDIT_PATH = _PAI_DIR / "{{AUDIT_LOG_PATH}}"
+# v2.0.0 audit (HIGH-3) — JSON-encoded form expands to a quoted Python
+# string literal, so the surrounding double quotes are NOT in the template.
+AUDIT_PATH = _PAI_DIR / {{AUDIT_LOG_PATH_PY}}
 PATTERN = re.compile({{PATTERN_JSON}})
 
 

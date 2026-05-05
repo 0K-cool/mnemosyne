@@ -27,9 +27,11 @@ const PAI_DIR =
   process.env.PAI_DIR ||
   join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CACHE_PATH = join(PAI_DIR, 'state', 'cr-review-cache.json');
-// v2.0.0 audit (RT-EXP-4) — was hardcoded, now follows the operator's
-// audit_log: setting like the other templates do.
-const AUDIT_PATH = join(PAI_DIR, '{{AUDIT_LOG_PATH}}');
+// v2.0.0 audit (RT-EXP-4 + HIGH-3) — was hardcoded; now follows the
+// operator's audit_log setting via the JSON-encoded TS-string form.
+// {{AUDIT_LOG_PATH_TS}} expands to a quoted JS string, so the
+// surrounding single quotes are NOT in the template.
+const AUDIT_PATH = join(PAI_DIR, {{AUDIT_LOG_PATH_TS}});
 const FRESHNESS_SECS = {{FRESHNESS_SECS}};
 const PATTERN = new RegExp({{PATTERN_JSON}});
 const REPO_FILTER_RAW = {{REPO_FILTER_JSON}};

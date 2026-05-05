@@ -172,6 +172,112 @@ class TestGenerateHook(unittest.TestCase):
             r"tsAgeSec\s*<\s*FRESHNESS_SECS\s*&&\s*mtimeAgeSec\s*<\s*FRESHNESS_SECS",
         )
 
+    def test_rendered_ts_hooks_use_json_encoded_audit_path(self):
+        """v2.0.0 audit (HIGH-3) — TS templates use the JSON-encoded form,
+        not single-quoted string literal interpolation, for AUDIT_LOG_PATH.
+
+        Pre-fix the templates contained ``join(PAI_DIR, '{{AUDIT_LOG_PATH}}')``
+        — a single-quoted TS string literal that could be escaped by a
+        value containing ``'``. The schema-layer allow-list (CRIT-1
+        primary fix) blocks the value at validation, but defense-in-
+        depth requires the render path to JSON-encode regardless. This
+        test enforces that contract.
+        """
+        # Render each TS template and check it does NOT contain the old
+        # single-quoted form, and DOES contain the join(...) call without
+        # wrapping quotes around the placeholder substitution.
+        cases = [
+            (".claude/hooks/auto/cr.ts", r"git push -u origin", None),
+            (".claude/hooks/auto/fp.ts", r"git push --force",
+             "force-push-guard.ts.template"),
+            (".claude/hooks/auto/bom.ts", r"rm -rf",
+             "block-on-match-guard.ts.template"),
+        ]
+        for hook, pattern, template in cases:
+            md_lines = [
+                "---", "name: t", "enforce:", "  tool: Bash",
+                f"  pattern: '{pattern}'", f"  hook: {hook}",
+                "  generated_from: memory/t.md",
+                "  audit_log: logs/operator-set.jsonl",
+            ]
+            if template:
+                md_lines.append(f"  template: {template}")
+            md_lines.extend(["---", "Body."])
+            md = "\n".join(md_lines) + "\n"
+            hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+
+            # Old (vulnerable) form must NOT survive in any TS template.
+            self.assertNotIn(
+                "join(PAI_DIR, 'logs/operator-set.jsonl')",
+                hook_source,
+                f"{hook}: still using single-quoted literal — HIGH-3 not closed",
+            )
+            # New form: JSON-encoded path with double quotes from json.dumps.
+            self.assertIn(
+                'join(PAI_DIR, "logs/operator-set.jsonl")',
+                hook_source,
+                f"{hook}: missing JSON-encoded AUDIT_LOG_PATH_TS",
+            )
+
+    def test_rendered_py_hook_uses_json_encoded_audit_path(self):
+        """HIGH-3 — Python template uses JSON-encoded form, not double-quoted literal."""
+        md = (
+            "---\n"
+            "name: py-test\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            "  pattern: 'rm -rf'\n"
+            "  hook: .claude/hooks/auto/bom.py\n"
+            "  generated_from: memory/p.md\n"
+            "  audit_log: logs/py-test.jsonl\n"
+            "  language: py\n"
+            "  template: block-on-match-guard.py.template\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # New form: JSON-encoded with double quotes (json.dumps output).
+        self.assertIn('_PAI_DIR / "logs/py-test.jsonl"', hook_source)
+
+    def test_rendered_sh_hook_uses_ansi_c_quoted_audit_path(self):
+        """HIGH-3 — Shell template uses ANSI-C ``$'...'`` form."""
+        md = (
+            "---\n"
+            "name: sh-test\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            "  pattern: 'rm -rf'\n"
+            "  hook: .claude/hooks/auto/bom.sh\n"
+            "  generated_from: memory/s.md\n"
+            "  audit_log: logs/sh-test.jsonl\n"
+            "  language: sh\n"
+            "  template: block-on-match-guard.sh.template\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # New form: shell concat of "$PAI_DIR/" with ANSI-C $'...'.
+        self.assertIn(r"$'logs/sh-test.jsonl'", hook_source)
+        self.assertIn(r'"$PAI_DIR/"', hook_source)
+
+    def test_safe_for_ts_string_escapes_quote_meta(self):
+        """The new sanitiser must produce a JS string literal that survives
+        any input — defense-in-depth even if the schema layer is bypassed."""
+        from enforce.generator import _safe_for_ts_string
+
+        # Each of these would have escaped a single-quoted TS string in
+        # the pre-fix template. The encoded form is double-quoted JSON.
+        for payload in ["'); evil(); ('", '" + evil() + "', "`${evil()}`",
+                        "\\u0027 evil", "\nevil()"]:
+            encoded = _safe_for_ts_string(payload)
+            # The encoded form starts and ends with the surrounding quotes.
+            self.assertTrue(encoded.startswith('"'))
+            self.assertTrue(encoded.endswith('"'))
+            # No bare single quote that would close a `'…'` template literal.
+            # (json.dumps does not escape single quotes — they are safe inside
+            # double-quoted JSON strings, and the TS template no longer
+            # surrounds the placeholder with single quotes.)
+
     def test_cr_prepush_hook_audit_path_is_operator_configurable(self):
         """v2.0.0 audit (RT-EXP-4) — audit_log: setting must reach the rendered hook.
 
