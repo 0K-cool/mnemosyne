@@ -10,7 +10,7 @@
 //   blocks otherwise. Audit trail: {{AUDIT_LOG_PATH}}.
 
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync, mkdirSync, appendFileSync } from 'fs';
+import { existsSync, readFileSync, mkdirSync, appendFileSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -27,7 +27,9 @@ const PAI_DIR =
   process.env.PAI_DIR ||
   join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CACHE_PATH = join(PAI_DIR, 'state', 'cr-review-cache.json');
-const AUDIT_PATH = join(PAI_DIR, 'logs', 'cr-prepush-enforcement.jsonl');
+// v2.0.0 audit (RT-EXP-4) — was hardcoded, now follows the operator's
+// audit_log: setting like the other templates do.
+const AUDIT_PATH = join(PAI_DIR, '{{AUDIT_LOG_PATH}}');
 const FRESHNESS_SECS = {{FRESHNESS_SECS}};
 const PATTERN = new RegExp({{PATTERN_JSON}});
 const REPO_FILTER_RAW = {{REPO_FILTER_JSON}};
@@ -65,6 +67,17 @@ function gitOut(cwd: string, ...args: string[]): string {
 function loadCache(): Cache {
   try { return JSON.parse(readFileSync(CACHE_PATH, 'utf8')) as Cache; }
   catch { return {}; }
+}
+
+// v2.0.0 audit (HIGH-1) — cache freshness must be derived from filesystem
+// mtime, not from the JSON-self-reported `entry.ts`. An attacker who can
+// write `cr-review-cache.json` can forge `ts` to satisfy the freshness
+// window indefinitely. Filesystem mtime is harder to forge (would require
+// a separate `touch -t` call after the write). Returns null when the
+// cache file is missing or unstat-able — caller treats null as fail-closed.
+function getCacheMtimeMs(): number | null {
+  try { return statSync(CACHE_PATH).mtimeMs; }
+  catch { return null; }
 }
 
 function appendAudit(entry: Record<string, unknown>): void {
@@ -158,12 +171,25 @@ function main(): void {
     if (entry.exit_code !== 0) {
       emitBlock(`last CR review on this HEAD failed (exit_code=${entry.exit_code}) — fix findings then re-run`, head, root);
     }
-    const ageSec = (Date.now() - new Date(entry.ts).getTime()) / 1000;
-    if (ageSec < FRESHNESS_SECS) {
-      appendAudit({ event: 'allow', reason: 'fresh-cache', repo: root, head, age_sec: Math.round(ageSec) });
+    // v2.0.0 audit (HIGH-1) — both gates must pass:
+    //   1. JSON-reported `entry.ts` (operator-readable freshness)
+    //   2. Filesystem mtime (defends against attacker forging entry.ts)
+    // Cache file with no stat-able mtime is fail-closed — refusing to
+    // trust a cache we cannot independently verify is fresher than the
+    // attacker's last write.
+    const tsAgeSec = (Date.now() - new Date(entry.ts).getTime()) / 1000;
+    const mtimeMs = getCacheMtimeMs();
+    const mtimeAgeSec = mtimeMs === null ? Infinity : (Date.now() - mtimeMs) / 1000;
+    if (tsAgeSec < FRESHNESS_SECS && mtimeAgeSec < FRESHNESS_SECS) {
+      appendAudit({ event: 'allow', reason: 'fresh-cache', repo: root, head,
+        ts_age_sec: Math.round(tsAgeSec), mtime_age_sec: Math.round(mtimeAgeSec) });
       process.exit(0);
     }
-    emitBlock(`stale CR review (age ${Math.round(ageSec)}s, threshold ${FRESHNESS_SECS}s)`, head, root);
+    if (mtimeMs === null) {
+      emitBlock(`cache mtime unavailable — refusing to trust JSON ts alone`, head, root);
+    }
+    const staleAge = Math.round(Math.max(tsAgeSec, mtimeAgeSec));
+    emitBlock(`stale CR review (age ${staleAge}s, threshold ${FRESHNESS_SECS}s)`, head, root);
   }
 
   if (entry && entry.head !== head) {

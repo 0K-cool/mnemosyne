@@ -149,6 +149,56 @@ class TestGenerateHook(unittest.TestCase):
         hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
         _assert_bun_build_clean(self, hook_source)
 
+    def test_cr_prepush_hook_includes_cache_mtime_check(self):
+        """v2.0.0 audit (HIGH-1) — cache freshness must require mtime, not just JSON ts.
+
+        Pre-fix the template only checked ``entry.ts`` from inside the cache
+        JSON. An attacker who could write the cache file forged ``ts: <now>``
+        and bypassed the gate. Post-fix the template additionally calls
+        ``statSync(CACHE_PATH).mtimeMs`` and requires both gates fresh.
+        """
+        fixture_path = FIXTURE_DIR / "cr-prepush-rule.md"
+        md = fixture_path.read_text()
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+
+        # The mtime-based defense must appear in the rendered hook.
+        self.assertIn("statSync", hook_source)
+        self.assertIn("getCacheMtimeMs", hook_source)
+        self.assertIn("mtimeMs", hook_source)
+        # Both gates must be combined with AND, not OR — either alone is
+        # forgeable. The freshness allow-decision must require both.
+        self.assertRegex(
+            hook_source,
+            r"tsAgeSec\s*<\s*FRESHNESS_SECS\s*&&\s*mtimeAgeSec\s*<\s*FRESHNESS_SECS",
+        )
+
+    def test_cr_prepush_hook_audit_path_is_operator_configurable(self):
+        """v2.0.0 audit (RT-EXP-4) — audit_log: setting must reach the rendered hook.
+
+        Pre-fix the cr-prepush template hardcoded ``join(PAI_DIR, 'logs',
+        'cr-prepush-enforcement.jsonl')`` while every other template used
+        ``{{AUDIT_LOG_PATH}}``. An operator setting ``audit_log:`` was
+        silently ignored for cr-prepush only. Post-fix all four templates
+        consistently honour the operator's choice.
+        """
+        md = (
+            "---\n"
+            "name: cr-rule\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "git push -u origin"\n'
+            "  hook: .claude/hooks/auto/cr-prepush.ts\n"
+            "  generated_from: memory/cr.md\n"
+            "  audit_log: logs/operator-chose-this.jsonl\n"
+            "---\n"
+            "Body.\n"
+        )
+        hook_source = generate_hook(md, template_dir=TEMPLATE_DIR)
+        # Operator's choice must land in the rendered AUDIT_PATH.
+        self.assertIn("logs/operator-chose-this.jsonl", hook_source)
+        # The pre-fix hardcoded path must NOT survive.
+        self.assertNotIn("'logs', 'cr-prepush-enforcement.jsonl'", hook_source)
+
     def test_missing_enforce_block_raises(self):
         md = (
             "---\n"
