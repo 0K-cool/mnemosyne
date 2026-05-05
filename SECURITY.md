@@ -145,18 +145,22 @@ offensive audit in April 2026 flagged 16 findings — 2 CRITICAL
 3 LOW, 2 INFO. v1.1.0 closes all the CRITICALs and HIGHs plus a majority
 of the MEDIUMs. v1.1.1 is scoped for the remainder.
 
-## v2 enforcement-layer threat model (DRAFT — Saturday May 2 audit)
+## v2 enforcement-layer threat model (DRAFT — May 2026 audit run)
 
 > **Status:** Stub scaffold for the deeper threat-model + parallel
-> defender/offensive audit pass scheduled for **Saturday May 2, 2026**.
+> defender/offensive audit pass. Originally scheduled for **May 2,
+> 2026**; in execution as of **May 5, 2026** as the v2.0.0
+> non-alpha release block. Findings will be linked below as
+> Phase 1 audits complete.
+>
 > The v1.1.x sections above are unchanged and authoritative for the
 > retrieval / scanner layers; this section covers the *new v2 surface
 > only* (the `enforce:` block, the generator, and the four templates).
 >
 > Per-PR audit lessons from the v2.0.0-alpha development cycle (PRs
 > #14 / #15 / #16 / #17 / #18 / #19) are pre-loaded as known-good
-> mitigations below. The Saturday audit's job is to find what those
-> 18+ CodeRabbit review rounds missed.
+> mitigations below. The audit's job is to find what those 18+
+> CodeRabbit review rounds missed.
 
 ### Trust boundaries
 
@@ -363,7 +367,7 @@ protocol for operators upgrading past that pin.]
 ### Mitigations already in place (per-PR audit lessons)
 
 These were caught by CodeRabbit during the v2.0.0-alpha PR cycle
-and shipped as fixes — Saturday audit should confirm they hold:
+and shipped as fixes — the audit should confirm they hold:
 
 - **Audit path discipline** — PR #17 R1 caught the `..`/`..`
   off-by-one that silently shipped in PRs #15 and #16 (audit
@@ -390,7 +394,7 @@ and shipped as fixes — Saturday audit should confirm they hold:
   naive `tokens[1] === 'push'` check) and `-o ci.skip` value
   confusion.
 
-### Open questions for the Saturday audit
+### Open questions for the audit
 
 1. Can a malicious operator with write access to `memory/` craft
    an `enforce:` block that survives schema validation but
@@ -425,7 +429,7 @@ and shipped as fixes — Saturday audit should confirm they hold:
     matched against a large `Edit`'s `new_string`, takes long
     enough to be a DoS?
 
-### Audit checklist (Saturday execution)
+### Audit checklist
 
 #### Phase 1 — Threat-model audit (~3-4h)
 
