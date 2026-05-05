@@ -28,6 +28,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -203,12 +204,60 @@ def _process_one(
 
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(hook_source, encoding="utf-8")
-        # Make the generated hook executable so Claude Code can spawn it.
+
+        # v2.0.0 audit (CRIT-2) — refuse to follow a symlink at out_path.
+        # Path.write_text uses open(O_WRONLY|O_CREAT|O_TRUNC) which follows
+        # symlinks; an attacker who pre-stages out_path → ~/.zshrc would
+        # have the rendered hook source overwrite the target file. We
+        # both pre-check and use atomic write-then-rename below, since
+        # rename replaces a symlink at the target without following it.
+        if out_path.is_symlink():
+            return (
+                False,
+                f"{memory_path.name}: refusing to write — {out_path} is a "
+                f"symlink (potential symlink attack on the hook output path)",
+                out_path,
+            )
+
+        # Atomic, symlink-safe write (CRIT-2 fix):
+        #   1. mkstemp creates a sibling temp file with O_EXCL — attacker
+        #      cannot pre-stage it.
+        #   2. os.fchmod operates on the fd, bypassing umask interference
+        #      (the operator's umask shouldn't downgrade hook executable
+        #      bits).
+        #   3. os.rename(tmp, out_path) atomically replaces the directory
+        #      entry. If out_path is a symlink, rename replaces the
+        #      symlink itself (does NOT follow it). POSIX guarantees
+        #      atomicity within the same filesystem.
         # 0o755 (rwxr-xr-x) matches the PAI hook convention; world-read+exec
-        # is required because the hook is invoked from contexts where the
+        # required because the hook is invoked from contexts where the
         # effective uid may differ. nosec: intentional + matches convention.
-        os.chmod(out_path, 0o755)  # nosec B103  # nosemgrep
+        fd, tmp_str = tempfile.mkstemp(
+            prefix=f".{out_path.name}.",
+            suffix=".tmp",
+            dir=str(out_path.parent),
+        )
+        tmp_path = Path(tmp_str)
+        try:
+            os.fchmod(fd, 0o755)  # nosec B103  # nosemgrep
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(hook_source)
+            os.rename(tmp_path, out_path)
+        except Exception:
+            # Best-effort cleanup; the open fd is already closed by fdopen
+            # on its own __exit__. If fdopen raised before taking ownership,
+            # we still need to close the fd we opened via mkstemp.
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+
         reserved_outputs.add(out_resolved)
         _log.info("wrote %s", out_path)
     except OSError as exc:

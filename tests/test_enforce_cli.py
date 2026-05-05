@@ -255,5 +255,118 @@ class TestEnforceCli(unittest.TestCase):
         self.assertTrue(out_file.exists())
 
 
+class TestEnforceSymlinkDefense(unittest.TestCase):
+    """v2.0.0 audit (CRIT-2) — symlink-follow arbitrary file overwrite.
+
+    Pre-fix: ``out_path.write_text()`` and ``os.chmod()`` both follow
+    symlinks. An attacker who pre-stages a symlink at the hook output
+    path can have ``mnemosyne enforce`` overwrite (and chmod 755) any
+    user-writable file on the system.
+
+    Post-fix: pre-check refuses to write when out_path is already a
+    symlink, and the write itself uses atomic rename (which replaces
+    the directory entry without following any symlink that races in
+    after the pre-check).
+    """
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.memory_dir = self.tmp / "memory"
+        self.memory_dir.mkdir()
+        self.output_dir = self.tmp / "hooks_auto"
+        self.output_dir.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write_memory(self, name: str, body: str) -> Path:
+        p = self.memory_dir / name
+        p.write_text(body)
+        return p
+
+    def test_refuses_to_follow_symlink_at_output_path(self):
+        """Pre-staged symlink at hook output → write refused, victim untouched."""
+        # Set up a victim file the attacker hopes to overwrite via
+        # ".claude/hooks/auto/cr-prepush.ts → victim.txt" symlink.
+        victim = self.tmp / "victim.txt"
+        original_content = "ORIGINAL VICTIM CONTENT"
+        victim.write_text(original_content)
+        original_mode = 0o644
+        victim.chmod(original_mode)
+
+        # Attacker-controlled symlink lands at the path mnemosyne enforce
+        # is about to write to.
+        target_path = self.output_dir / "cr-prepush.ts"
+        target_path.symlink_to(victim)
+        self.assertTrue(target_path.is_symlink())
+
+        # Write a memory entry that would cause writing to that path.
+        self._write_memory("cr.md", CR_PREPUSH_RULE)
+
+        rc, _, err = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+
+        # CLI exits non-zero because the entry failed.
+        self.assertNotEqual(rc, 0, "expected failure when symlink at output")
+
+        # Victim file content MUST NOT be the rendered hook source.
+        self.assertEqual(
+            victim.read_text(),
+            original_content,
+            "CRIT-2: symlink was followed, victim file overwritten",
+        )
+
+        # Victim file mode MUST NOT have been chmod'd to 0o755.
+        self.assertEqual(
+            victim.stat().st_mode & 0o777,
+            original_mode,
+            "CRIT-2: symlink was followed, victim file mode changed",
+        )
+
+        # The error message should clearly identify the symlink as the
+        # cause so the operator can investigate (vs a generic IOError).
+        self.assertIn("symlink", err.lower())
+
+    def test_atomic_replace_overwrites_regular_file(self):
+        """Pre-existing regular file at output path → atomic replace works."""
+        target_path = self.output_dir / "cr-prepush.ts"
+        target_path.write_text("// stale hook content")
+
+        self._write_memory("cr.md", CR_PREPUSH_RULE)
+
+        rc, _, err = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+            "--force",
+        )
+
+        self.assertEqual(rc, 0, f"stderr: {err}")
+        # New content lands at the target.
+        self.assertIn("AUTO-GENERATED", target_path.read_text())
+        # Mode is 0o755 (executable).
+        self.assertEqual(target_path.stat().st_mode & 0o777, 0o755)
+
+    def test_no_tmp_files_left_behind_on_success(self):
+        """Atomic write must not leak .tmp sidecars on the happy path."""
+        self._write_memory("cr.md", CR_PREPUSH_RULE)
+
+        rc, _, err = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+
+        self.assertEqual(rc, 0, f"stderr: {err}")
+        leftover = list(self.output_dir.glob(".*.tmp")) + list(
+            self.output_dir.glob("*.tmp")
+        )
+        self.assertEqual(leftover, [], f"temp files leaked: {leftover}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
