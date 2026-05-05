@@ -568,8 +568,21 @@ class TestPatternSafetyAgainstReDoS(unittest.TestCase):
         self.assertIn("backtracking", str(ctx.exception).lower())
 
     def test_pattern_rejects_classic_redos_shapes(self):
-        """All five canonical nested-quantifier shapes are rejected."""
+        """All canonical nested-quantifier shapes are rejected."""
         for redos in [r"(a+)+", r"(.+)+", r"(.*)+x", r"(a*)+", r"((a+)+)+", r"(a+){2,5}"]:
+            with self.assertRaises(EnforceValidationError, msg=f"pattern {redos!r}"):
+                validate_enforce_block(self._base(pattern=redos))
+
+    def test_pattern_rejects_inner_optional_and_bounded_quantifiers(self):
+        """v2.0.0 audit (CR follow-up) — `(a?)+` and `(a{n,})+` ReDoS shapes.
+
+        `(a?)+` against a non-matching string also catastrophically
+        backtracks: each empty match expands the outer `+`. `(a{1,})+`
+        is the bounded-but-unbounded form. CR widened the recommended
+        check; we honour that. Inner `?` and inner `{` must be caught
+        as readily as inner `+` / `*`.
+        """
+        for redos in [r"(a?)+", r"(.?)+x", r"(a{1,})+", r"(a{2,5})*", r"(.{0,})+"]:
             with self.assertRaises(EnforceValidationError, msg=f"pattern {redos!r}"):
                 validate_enforce_block(self._base(pattern=redos))
 

@@ -338,12 +338,10 @@ def generate_hook(md: str, template_dir: Path) -> str:
         # Phase 5: shell-safe form for the .sh.template port. Uses
         # bash ANSI-C quoting `$'...'` — `$` and backticks are literal
         # inside it, so regex metacharacters round-trip without
-        # shell-level mangling. We escape `\` and `'` only.
-        "PATTERN_SH": (
-            "$'"
-            + enforce["pattern"].replace("\\", "\\\\").replace("'", "\\'")
-            + "'"
-        ),
+        # shell-level mangling. v2.0.0 audit CR follow-up: routed
+        # through `_safe_for_shell_dollar_quote` so the escaping logic
+        # has a single source of truth (was previously duplicated here).
+        "PATTERN_SH": _safe_for_shell_dollar_quote(enforce["pattern"]),
         "REPO_FILTER_JSON": json.dumps(enforce.get("repo_filter", "")),
         "FRESHNESS_SECS": str(enforce["freshness_secs"]),
         # v2.0.0 audit (HIGH-3) — these go into LINE COMMENT contexts only

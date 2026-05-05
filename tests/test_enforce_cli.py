@@ -351,6 +351,59 @@ class TestEnforceSymlinkDefense(unittest.TestCase):
         # Mode is 0o755 (executable).
         self.assertEqual(target_path.stat().st_mode & 0o777, 0o755)
 
+    def test_symlink_check_runs_before_idempotent_skip(self):
+        """v2.0.0 audit (CR follow-up) — symlink refusal MUST run before
+        read_text idempotent-skip.
+
+        Pre-fix: an attacker pre-staged a symlink whose target contained
+        equivalent hook content. The idempotent-skip branch read the
+        target, found it equivalent, returned success — leaving the
+        symlink installed. The next run could swap the target and
+        redirect the hook path without warning.
+
+        Post-fix: symlink check runs first, so no read_text or write
+        ever follows the symlink.
+        """
+        # Generate the actual hook content so we can plant an equivalent
+        # copy behind the symlink — this is the specific scenario CR
+        # called out: equivalent content on a symlink must NOT be
+        # treated as "unchanged, skip", it must still be refused.
+        self._write_memory("cr.md", CR_PREPUSH_RULE)
+
+        # First run produces the real hook source we can clone.
+        rc, _, _ = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+        self.assertEqual(rc, 0)
+        target_path = self.output_dir / "cr-prepush.ts"
+        self.assertTrue(target_path.is_file())
+        produced_content = target_path.read_text()
+
+        # Replace the regular file with a symlink whose target carries
+        # equivalent content (modulo the timestamp comment line that
+        # _content_equivalent strips).
+        target_path.unlink()
+        decoy = self.tmp / "decoy.ts"
+        decoy.write_text(produced_content)
+        target_path.symlink_to(decoy)
+        self.assertTrue(target_path.is_symlink())
+        decoy_mtime_before = decoy.stat().st_mtime
+
+        rc, _, err = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+
+        # Must fail loudly — equivalent-content idempotency must NOT
+        # paper over a symlink.
+        self.assertNotEqual(rc, 0)
+        self.assertIn("symlink", err.lower())
+        # Symlink target file must not have been touched.
+        self.assertEqual(decoy.stat().st_mtime, decoy_mtime_before)
+
     def test_no_tmp_files_left_behind_on_success(self):
         """Atomic write must not leak .tmp sidecars on the happy path."""
         self._write_memory("cr.md", CR_PREPUSH_RULE)

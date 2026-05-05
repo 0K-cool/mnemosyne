@@ -190,6 +190,23 @@ def _process_one(
         _log.info("[dry-run] would write %s (%d bytes)", out_path, len(hook_source))
         return True, None, out_path
 
+    # v2.0.0 audit (CRIT-2 + CR follow-up) — refuse to follow a symlink at
+    # out_path. This MUST run BEFORE the idempotent-skip read below: if
+    # an attacker pre-stages a symlink whose target already contains
+    # content equivalent to the rendered hook, the read_text path would
+    # otherwise return success and leave the symlink installed for later
+    # target-swap. Path.write_text uses open(O_WRONLY|O_CREAT|O_TRUNC)
+    # which follows symlinks; the atomic rename below additionally
+    # replaces the directory entry without following any symlink that
+    # races in after this check.
+    if out_path.is_symlink():
+        return (
+            False,
+            f"{memory_path.name}: refusing to write — {out_path} is a "
+            f"symlink (potential symlink attack on the hook output path)",
+            out_path,
+        )
+
     # Idempotent skip: if the existing hook is byte-equivalent (modulo timestamp),
     # don't rewrite. --force overrides.
     if not force and out_path.exists():
@@ -204,20 +221,6 @@ def _process_one(
 
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # v2.0.0 audit (CRIT-2) — refuse to follow a symlink at out_path.
-        # Path.write_text uses open(O_WRONLY|O_CREAT|O_TRUNC) which follows
-        # symlinks; an attacker who pre-stages out_path → ~/.zshrc would
-        # have the rendered hook source overwrite the target file. We
-        # both pre-check and use atomic write-then-rename below, since
-        # rename replaces a symlink at the target without following it.
-        if out_path.is_symlink():
-            return (
-                False,
-                f"{memory_path.name}: refusing to write — {out_path} is a "
-                f"symlink (potential symlink attack on the hook output path)",
-                out_path,
-            )
 
         # Atomic, symlink-safe write (CRIT-2 fix):
         #   1. mkstemp creates a sibling temp file with O_EXCL — attacker

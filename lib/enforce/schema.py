@@ -93,10 +93,14 @@ _PATH_MAX_BYTES = 256
 # detection. Both gates are conservative — they catch the highest-frequency
 # ReDoS shapes without trying to be a full regex complexity analyser.
 _PATTERN_MAX_BYTES = 512
-# Nested unbounded quantifiers: a quantifier (`+`, `*`, `{n,}`, `?`) that
-# closes a group whose contents already include `+` or `*`. Catches the
-# classic shapes (a+)+, (a*)+, (.+)+, (.*)+x, ((a+)+)+, (a+){2,5}.
-_NESTED_QUANTIFIER_RE = re.compile(r"[+*]\s*\)\s*[+*?{]")
+# Nested unbounded quantifiers: an inner quantifier (`+`, `*`, `?`,
+# `{n,}`) closes a group, and an outer quantifier follows the closing
+# paren. Inner `?` matters because `(a?)+` against a non-matching
+# string also catastrophically backtracks — each empty match expands
+# the outer `+`. Inner `{n,}` is the bounded-but-unbounded form.
+# Catches: (a+)+, (a*)+, (.+)+, (.*)+x, ((a+)+)+, (a+){2,5},
+#          (a?)+, (a{1,})+, (a{2,5})*, etc.
+_NESTED_QUANTIFIER_RE = re.compile(r"[+*?}]\s*\)\s*[+*?{]")
 
 # v2.0.0 audit (HIGH-4) — the block-on-match-guard.* templates inspect
 # tool_input.command, which only exists on the Bash tool. Pairing them
