@@ -4,7 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
-[2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
+<!-- [2.0.0]: link added after the v2.0.0 tag is published. -->
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
 
 ## [2.0.0] — 2026-05-05
