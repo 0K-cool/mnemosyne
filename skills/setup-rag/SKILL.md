@@ -62,7 +62,7 @@ This downloads ~1.3GB. Used for generating contextual summaries during indexing.
 
 ### Step 4: Clone ok-rag
 
-**Health check:** `~/tools/0k-rag/plugin.json` exists.
+**Health check:** `plugin.json` exists in the 0K-RAG install directory — default `~/tools/0k-rag`, or `$MNEMOSYNE_RAG_PATH` when the operator has overridden the location.
 
 ```bash
 git clone https://github.com/0K-cool/0k-rag.git ~/tools/0k-rag
