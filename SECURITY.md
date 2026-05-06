@@ -17,20 +17,20 @@ Security fixes land on the **latest minor** release.
 
 | Version           | Supported      |
 |-------------------|----------------|
-| v2.0.0-alpha      | Yes (alpha — see v2 note below) |
-| v1.1.x            | Yes            |
-| v1.0.x            | No — upgrade   |
+| v2.0.0            | **Yes — current**            |
+| v2.0.0-alpha      | No — superseded; upgrade to v2.0.0 |
+| v1.1.x            | Yes (security fixes only)    |
+| v1.0.x            | No — upgrade                 |
 
-> **Note on v2 alpha:** v2.0.0-alpha ships the new memory-driven
-> enforcement layer (`enforce:` block + hook generator). The
-> retrieval, write-time validation, and read-time scanner layers
-> from v1.1.x are unchanged and retain their full security
+> **Note on v2:** v2.0.0 ships the memory-driven enforcement
+> layer (`enforce:` block + hook generator). The retrieval,
+> write-time validation, and read-time scanner layers from
+> v1.1.x are unchanged and retain their full security
 > guarantees. The v2.0.0-alpha enforcement generator was audited
-> in May 2026 — 2 CRITICAL + 4 HIGH findings closed in v2.0.0
-> (this branch); see "Phase 1 audit findings" below for the
-> closure log and known residuals. **Operators on v2.0.0-alpha
-> should upgrade to v2.0.0 once it ships** — alpha is no longer
-> the recommended track.
+> in May 2026 — 2 CRITICAL + 4 HIGH findings closed in v2.0.0;
+> see "Phase 1 audit findings" below for the closure log and
+> known residuals. **Operators on v2.0.0-alpha should upgrade
+> to v2.0.0** — alpha is superseded.
 
 ## Threat model
 
