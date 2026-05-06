@@ -1,6 +1,6 @@
 # Mnemosyne v2 — Memory-Driven Enforcement Layer (design)
 
-> **Status:** v2.0 alpha — Phases 1, 1.2, 2, 3, 4, 4.1, 4.2, and 5 shipped. v2 alpha is feature-complete; subsequent work is hardening + porting templates to non-TS languages.
+> **Status:** v2.0.0 shipped (May 5, 2026). All planned alpha phases (1, 1.2, 2, 3, 4, 4.1, 4.2, 5) plus the Phase 1 audit closure (2 CRIT + 4 HIGH + 2 MED findings fixed) are merged. See [`SECURITY.md`](../SECURITY.md#phase-1-audit-findings-executed-may-5-2026) and [`CHANGELOG.md`](../CHANGELOG.md) for the full closure log.
 
 ## The gap v2 closes
 
@@ -43,7 +43,7 @@ enforce:
   freshness_secs: 1800                                   # optional, default 1800
   audit_log: .claude/logs/cr-prepush-enforcement.jsonl   # optional, default <hook>.audit.jsonl
   generator_version: 2.0.0                               # optional
-  repo_filter: "github\\.com[:/]0K-cool/"                # optional, regex on origin URL
+  repo_filter: "github\\.com[:/]your-org/"               # optional, regex on origin URL
 ---
 ```
 
@@ -71,7 +71,7 @@ Templates use `{{PARAM}}` (Jinja-style brackets) for substitution rather than `$
 
 ### 3. The first template — `cr-prepush-guard.ts.template`
 
-Ships with Phase 1. Generates a PreToolUse hook that gates `git push` on private 0K-cool repos behind a fresh CodeRabbit review. The original hand-written hook lives in [PAI PR #45](https://github.com/0K-cool/vex/pull/45); the template is the parameterized form of that hook, ready to be regenerated for any compatible memory entry.
+Ships with Phase 1. Generates a PreToolUse hook that gates `git push` until a fresh CodeRabbit review is on file. Operators set the freshness window via `freshness_secs:` and optionally restrict the gate to specific repos via `repo_filter:` (regex against the `origin` URL). The template is parameterised — apply it to any memory entry that declares the matching `enforce:` shape.
 
 Test fixture proves end-to-end: `tests/fixtures/enforce/cr-prepush-rule.md` generates a hook that compiles cleanly under `bun build`.
 
@@ -431,7 +431,7 @@ no 'py' port of 'force-push-guard.ts.template' available
 Silent fallback to the TS file would emit a `bun`-shebanged script in
 a Python deployment — the wrong runtime altogether.
 
-### What ships in v2 alpha
+### What shipped in v2.0.0
 
 | Template | ts | py | sh |
 |---|---|---|---|
@@ -505,7 +505,6 @@ Phase 1 ships now because it sets up the contract. The rest of v2 builds on this
 
 ## References
 
-- PAI working prototype: https://github.com/0K-cool/vex/pull/45
 - Anthropic memory docs: https://code.claude.com/docs/en/memory
 - Anthropic hooks docs: https://code.claude.com/docs/en/hooks
 - Cursor / PocketOS database deletion incident, April 26 2026: https://www.theregister.com/2026/04/27/cursoropus_agent_snuffs_out_pocketos/

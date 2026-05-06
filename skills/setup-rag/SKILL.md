@@ -62,17 +62,17 @@ This downloads ~1.3GB. Used for generating contextual summaries during indexing.
 
 ### Step 4: Clone ok-rag
 
-**Health check:** `~/tools/0k-rag/plugin.json` exists (or `~/tools/vex-rag/plugin.json` for legacy installs).
+**Health check:** `plugin.json` exists in the 0K-RAG install directory — default `~/tools/0k-rag`, or `$MNEMOSYNE_RAG_PATH` when the operator has overridden the location.
 
 ```bash
-git clone https://github.com/0K-cool/0k-rag.git ~/tools/0k-rag
+git clone https://github.com/0K-cool/0k-rag.git "${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}"
 ```
 
-If user already has vex-rag at `~/tools/vex-rag`, that works too — set `MNEMOSYNE_RAG_PATH=~/tools/vex-rag`.
+If 0K-RAG is installed under a non-default path, set `MNEMOSYNE_RAG_PATH` to point at the install directory.
 
 ### Step 5: Create venv and Install Dependencies
 
-**Health check:** `~/tools/0k-rag/.venv/bin/python -c "import lancedb; print('ok')"` prints "ok".
+**Health check:** `"${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}/.venv/bin/python" -c "import lancedb; print('ok')"` prints "ok". Throughout this document `${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}` resolves to the operator's chosen install directory; export `MNEMOSYNE_RAG_PATH` once at the top of the session if you've overridden the default.
 
 Ask the user which tier they want:
 
@@ -81,14 +81,14 @@ Ask the user which tier they want:
 
 For **core**:
 ```bash
-cd ~/tools/0k-rag
+cd "${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-core.txt
 ```
 
 For **full** (recommended):
 ```bash
-cd ~/tools/0k-rag
+cd "${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
@@ -100,16 +100,16 @@ python3 -m venv --system-site-packages .venv
 
 ### Step 6: Generate Configuration
 
-**Health check:** `.vex-rag.yml` exists in the user's project root.
+**Health check:** `.0k-rag.yml` exists in the user's project root.
 
-Create `.vex-rag.yml` in the project root with this template (fill in project-specific values):
+Create `.0k-rag.yml` in the project root with this template (fill in project-specific values):
 
 ```yaml
 project:
   name: "{PROJECT_NAME}"
 
 database:
-  path: "{PROJECT_ROOT}/lance_vex_kb"
+  path: "{PROJECT_ROOT}/lance_kb"
 
 retrieval:
   enable_reranking: true
@@ -136,19 +136,19 @@ Replace `{PROJECT_NAME}` and `{PROJECT_ROOT}` with actual values.
 
 ### Step 7: Wire MCP Server
 
-**Health check:** `.mcp.json` in project root contains `vex-knowledge-base` entry.
+**Health check:** `.mcp.json` in project root contains `0k-rag-knowledge-base` entry.
 
 Add to `.mcp.json` (create if it doesn't exist):
 
 ```json
 {
   "mcpServers": {
-    "vex-knowledge-base": {
+    "0k-rag-knowledge-base": {
       "type": "stdio",
       "command": "{OK_RAG_PATH}/.venv/bin/python3",
-      "args": ["-m", "mcp_server.vex_kb_server"],
+      "args": ["-m", "mcp_server.ok_rag_server"],
       "env": {
-        "RAG_CONFIG": "{PROJECT_ROOT}/.vex-rag.yml",
+        "RAG_CONFIG": "{PROJECT_ROOT}/.0k-rag.yml",
         "PYTHONPATH": "{OK_RAG_PATH}"
       }
     }
@@ -168,8 +168,8 @@ Replace `{OK_RAG_PATH}` and `{PROJECT_ROOT}` with actual paths.
 
 If the MCP server fails to start:
 - Check Ollama is running: `ollama list`
-- Check Python path: `~/tools/0k-rag/.venv/bin/python3 -c "import lancedb"`
-- Check config: `cat .vex-rag.yml`
+- Check Python path: `"${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}/.venv/bin/python3" -c "import lancedb"`
+- Check config: `cat .0k-rag.yml`
 - Check logs: `cat .claude/logs/rag.log`
 
 ### Step 9: Index Starter Documents
@@ -196,6 +196,6 @@ After all steps pass:
 
 > ok-rag is now active. Your retrieval accuracy has been upgraded from ~60% (keyword) to 100% (semantic hybrid).
 >
-> The auto-retrieve hook will automatically use ok-rag for future sessions. You can verify by checking the stderr output for `[mnemosyne] N results via vex-rag`.
+> The auto-retrieve hook will automatically use 0K-RAG for future sessions. You can verify by checking the stderr output for `[mnemosyne] N results via 0k-rag`.
 >
 > To re-run this setup: `/mnemosyne-setup-rag`
