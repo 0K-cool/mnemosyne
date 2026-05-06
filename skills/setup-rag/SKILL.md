@@ -65,14 +65,14 @@ This downloads ~1.3GB. Used for generating contextual summaries during indexing.
 **Health check:** `plugin.json` exists in the 0K-RAG install directory — default `~/tools/0k-rag`, or `$MNEMOSYNE_RAG_PATH` when the operator has overridden the location.
 
 ```bash
-git clone https://github.com/0K-cool/0k-rag.git ~/tools/0k-rag
+git clone https://github.com/0K-cool/0k-rag.git "${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}"
 ```
 
 If 0K-RAG is installed under a non-default path, set `MNEMOSYNE_RAG_PATH` to point at the install directory.
 
 ### Step 5: Create venv and Install Dependencies
 
-**Health check:** `~/tools/0k-rag/.venv/bin/python -c "import lancedb; print('ok')"` prints "ok".
+**Health check:** `"${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}/.venv/bin/python" -c "import lancedb; print('ok')"` prints "ok". Throughout this document `${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}` resolves to the operator's chosen install directory; export `MNEMOSYNE_RAG_PATH` once at the top of the session if you've overridden the default.
 
 Ask the user which tier they want:
 
@@ -81,14 +81,14 @@ Ask the user which tier they want:
 
 For **core**:
 ```bash
-cd ~/tools/0k-rag
+cd "${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-core.txt
 ```
 
 For **full** (recommended):
 ```bash
-cd ~/tools/0k-rag
+cd "${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
@@ -168,7 +168,7 @@ Replace `{OK_RAG_PATH}` and `{PROJECT_ROOT}` with actual paths.
 
 If the MCP server fails to start:
 - Check Ollama is running: `ollama list`
-- Check Python path: `~/tools/0k-rag/.venv/bin/python3 -c "import lancedb"`
+- Check Python path: `"${MNEMOSYNE_RAG_PATH:-$HOME/tools/0k-rag}/.venv/bin/python3" -c "import lancedb"`
 - Check config: `cat .0k-rag.yml`
 - Check logs: `cat .claude/logs/rag.log`
 
