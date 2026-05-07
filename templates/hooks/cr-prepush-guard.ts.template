@@ -173,19 +173,26 @@ function main(): void {
     if (entry.exit_code !== 0) {
       emitBlock(`last CR review on this HEAD failed (exit_code=${entry.exit_code}) — fix findings then re-run`, head, root);
     }
-    // v2.0.0 audit (HIGH-1) — both gates must pass:
-    //   1. JSON-reported `entry.ts` (operator-readable freshness)
+    // v2.0.0 audit (HIGH-1) + post-release dogfood nit — both gates must pass:
+    //   1. JSON-reported `entry.ts` (operator-readable freshness; NaN-guarded)
     //   2. Filesystem mtime (defends against attacker forging entry.ts)
     // Cache file with no stat-able mtime is fail-closed — refusing to
     // trust a cache we cannot independently verify is fresher than the
-    // attacker's last write.
-    const tsAgeSec = (Date.now() - new Date(entry.ts).getTime()) / 1000;
+    // attacker's last write. A malformed `entry.ts` (parse → NaN)
+    // likewise fails the JSON gate, blocks with a specific reason, and
+    // never propagates `NaN` into the human-facing age message.
+    const tsMs = Date.parse(entry.ts);
+    const tsValid = Number.isFinite(tsMs);
+    const tsAgeSec = tsValid ? (Date.now() - tsMs) / 1000 : Infinity;
     const mtimeMs = getCacheMtimeMs();
     const mtimeAgeSec = mtimeMs === null ? Infinity : (Date.now() - mtimeMs) / 1000;
     if (tsAgeSec < FRESHNESS_SECS && mtimeAgeSec < FRESHNESS_SECS) {
       appendAudit({ event: 'allow', reason: 'fresh-cache', repo: root, head,
         ts_age_sec: Math.round(tsAgeSec), mtime_age_sec: Math.round(mtimeAgeSec) });
       process.exit(0);
+    }
+    if (!tsValid) {
+      emitBlock(`cache entry.ts unparseable (${JSON.stringify(entry.ts)}) — refusing to trust`, head, root);
     }
     if (mtimeMs === null) {
       emitBlock(`cache mtime unavailable — refusing to trust JSON ts alone`, head, root);
