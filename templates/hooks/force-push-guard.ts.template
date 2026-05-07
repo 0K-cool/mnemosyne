@@ -60,8 +60,10 @@ function appendAudit(entry: Record<string, unknown>): void {
 }
 
 function emitBlock(branch: string): never {
-  // Box width = 60 inner chars between the │ rails (61 dashes for the borders).
-  const W = 60;
+  // Box width: the border lines below use 62 dashes between corners,
+  // so the inner width must match. Pre-fix this used W=60 which left
+  // content lines 2 chars shorter than the borders → misaligned output.
+  const W = 62;
   const pad = (s: string): string => s.length >= W ? s.slice(0, W) : s + ' '.repeat(W - s.length);
   const lines = [
     '',
@@ -85,14 +87,21 @@ function emitBlock(branch: string): never {
 
 function isForcePush(tokens: string[]): boolean {
   // Match against full tokens so we don't false-positive on a remote URL
-  // that happens to contain the substring "force".
-  return tokens.some(t =>
-    t === '--force' ||
-    t === '-f' ||
-    t === '--force-with-lease' ||
-    t.startsWith('--force-with-lease=') ||
-    t === '--force-if-includes'
-  );
+  // that happens to contain the substring "force". Long flags listed
+  // explicitly. Short flags get a wider net: any single-hyphen token
+  // containing 'f' is treated as force-push, since git allows
+  // combined short flags like -af / -fa / -vf etc. — pre-fix the
+  // strict `t === '-f'` check missed every combined form.
+  return tokens.some(t => {
+    if (
+      t === '--force' ||
+      t === '--force-with-lease' ||
+      t.startsWith('--force-with-lease=') ||
+      t === '--force-if-includes'
+    ) return true;
+    if (t.startsWith('-') && !t.startsWith('--') && t.includes('f')) return true;
+    return false;
+  });
 }
 
 function normalizeBranchName(name: string): string {
@@ -151,7 +160,10 @@ function extractTarget(tokens: string[], cwd: string): string | null {
     const refspec = positional[1];
     const colon = refspec.indexOf(':');
     if (colon === -1) return normalizeBranchName(refspec);
-    if (colon === 0) return null; // delete-remote refspec — not a force-update of local
+    // Delete-refspec (`:branch`) is destructive on protected targets —
+    // arguably more so than a force-update — so resolve it to the
+    // destination branch name and let the protected-branch check fire.
+    if (colon === 0) return normalizeBranchName(refspec.slice(1));
     return normalizeBranchName(refspec.slice(colon + 1));
   }
 
@@ -179,8 +191,20 @@ function main(): void {
   if (data.tool_name !== '{{TOOL}}') process.exit(0);
   const cmd = data.tool_input?.command || '';
 
-  // Tokenise once and reuse — keeps the parser tight.
-  const tokens = cmd.split(/\s+/).filter(t => t.length > 0);
+  // Tokenise once and reuse — keeps the parser tight. Strip a single
+  // outer pair of matching shell quotes per token so quoted forms like
+  // `git push --force origin 'main'` cannot bypass the protected-branch
+  // match by sneaking quotes through. This is a minimal fix; full shell
+  // lexing (escapes, mixed quotes, $'…') is out of scope for the hook.
+  const tokens = cmd
+    .split(/\s+/)
+    .filter(t => t.length > 0)
+    .map(t => {
+      if (t.length >= 2 && (t[0] === "'" || t[0] === '"') && t[t.length - 1] === t[0]) {
+        return t.slice(1, -1);
+      }
+      return t;
+    });
 
   // Quick sanity: must be a `git push` command. Accept full paths
   // (`/usr/bin/git push ...`) and global options between git and push
