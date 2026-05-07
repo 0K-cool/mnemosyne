@@ -60,7 +60,7 @@ DEFAULT_CREDENTIAL_PATTERNS: tuple[str, ...] = (
     r"xox[abprs]-[A-Za-z0-9-]{10,}",                  # Slack tokens
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----",            # PEM private key headers
     r"(sk|pk|rk)_live_[A-Za-z0-9]{24,}",              # Stripe live keys
-    r"npm_[A-Za-z0-9]{36}",                           # npm publish tokens
+    r"npm_[A-Za-z0-9]{36,}",                          # npm tokens (granular tokens, ≥36 chars after prefix)
     r"glpat-[A-Za-z0-9_-]{20,}",                      # GitLab PATs
 )
 
