@@ -4,8 +4,103 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
-<!-- [2.0.0]: link added after the v2.0.0 tag is published. -->
+[2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
+[2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.0.1] — 2026-05-08
+
+**Template hardening — surfaced by PAI dogfood.** Three PAI dogfood
+install cycles (cr-prepush, force-push, credential-leak) of the v2.0.0
+templates surfaced 14 template-quality findings beyond what the v2.0.0
+audit reached — 12 closed in this release, 2 deferred to a known
+follow-up issue. Net dogfood payoff: real-repo template usage caught a
+comparable findings volume to the audit (14 vs 8) at zero incremental
+review cost.
+
+This is a patch release — no breaking changes, no schema changes, no
+new public CLI surface. All changes are template + generator-side
+hardening picked up automatically by `mnemosyne enforce` regen.
+
+### Template fixes — closed
+
+- **PR [#24]: `cr-prepush-guard` Date.parse crash on malformed entry.**
+  Validate `entry.ts` is a string before `Date.parse()`; corrupt cache
+  entries no longer crash the pre-push hook (would previously throw and
+  block the push with an unhelpful stack trace).
+- **PR [#25]: `force-push-guard` 3 real security bypasses + box-width.**
+  - **CRITICAL (delete-refspec)**: `git push origin :main` form was not
+    recognised as a destructive op. `normalizeBranchName` now handles
+    the empty-source-ref case.
+  - **MAJOR (combined short flags)**: `-af` packed flag bundling slipped
+    past the `--force` matcher. Argv tokenisation now expands short-flag
+    bundles before matching.
+  - **MAJOR (shell quoting)**: quoted branch names (`'main'`, `"main"`)
+    evaded the protected-branches check. Branch arg now strip-quoted
+    before comparison.
+  - **MINOR**: box-width alignment in the BLOCKED banner.
+- **PR [#26]: `credential-leak-guard` 6 template fixes (Phase 5 dogfood
+  3/3 of the original Saturday plan).**
+  - **CRITICAL (docstring runtime contract)**: rendered hook docstring
+    claimed the hook scans Edit/Write/MultiEdit; runtime exits early on
+    any tool other than `{{TOOL}}`. Docstring now describes the
+    rendered-instance scope, not the template's full capability surface.
+  - **MAJOR (`tool_name` fail-open)**: payload missing `tool_name`
+    silently fell through `!== '{{TOOL}}'` and exited 0. Now blocks
+    fail-closed (consistent with `JSON.parse` and missing-`file_path`
+    branches). The asymmetry is deliberate — `credential-leak-guard`
+    cannot afford "missed audit, allow by default."
+  - **MINOR (npm token forward-compat)**: `npm_[A-Za-z0-9]{36}` →
+    `{36,}` for granular-token format stability.
+  - **MINOR (Stripe `pk_live_` exclusion)**: publishable keys are
+    designed for client-side embed (frontend JS, README). Removing `pk`
+    from the alternation eliminates a false-positive class.
+  - **MINOR (`String(err)` redaction)**: modern V8/Node embeds an input
+    excerpt in `SyntaxError` messages; logging `String(err)` would have
+    contradicted the hook's own redaction guarantee. Now logs the error
+    class name only (`err.name`).
+  - **MINOR (path-scope dead-branch comment)**: when memory entry sets
+    `pattern: ".*"`, the path-scope branch is intentionally unreachable.
+    Clarifying comment so future readers don't mistake intent.
+  - **MINOR (box-width W=60→62)**: matches the post-PR-#25 force-push
+    convention; closes the trailing-rail visual misalignment.
+  - **MINOR (unused import)**: dropped `existsSync` from the `fs`
+    destructure — never referenced in the rendered hook.
+
+### Deferred (tracked in [#27])
+
+- **D1**: GitHub token patterns `{82}/{36}` → `{82,}/{36,}` for
+  forward-compat (same shape as the npm relax, but speculative — no
+  known length change announced by GitHub).
+- **D2**: `pad()` uses JS `string.length` not terminal display width.
+  The 🛑 emoji is double-width visually but counts as 1 JS char,
+  causing a 1-column misalignment on the credential-leak-guard header
+  row. Cosmetic.
+
+### Process notes
+
+- All three fix PRs landed via `coderabbit review` cycles ranging from
+  1–7 rounds. PR [#26] specifically went 7 rounds — the longest dogfood
+  cycle to date — driven by sequential CR finding pickup rather than
+  any single deep issue.
+- The release-prep commit is direct-to-`main` (rather than via a
+  PR like v2.0.0's [#22]) because the bump is purely descriptive
+  ceremony — no schema, code, or test changes vs. the merged HEAD.
+
+### Tests
+
+- 296 Python unittest + 100 Bun adversarial tests — all green pre and
+  post each fix commit.
+- PAI-side smoke tests on the rendered hooks: AWS / GitHub / Stripe
+  (`sk_live_`, `rk_live_` block; `pk_live_` allows post-fix) / Slack /
+  PEM / npm / GitLab pattern coverage; out-of-scope tools allow
+  through; fail-closed on protocol drift; redaction guarantee verified
+  against malformed-JSON-with-credential payload.
+
+[#24]: https://github.com/0K-cool/mnemosyne/pull/24
+[#25]: https://github.com/0K-cool/mnemosyne/pull/25
+[#26]: https://github.com/0K-cool/mnemosyne/pull/26
+[#27]: https://github.com/0K-cool/mnemosyne/issues/27
 
 ## [2.0.0] — 2026-05-05
 
