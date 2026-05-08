@@ -9,7 +9,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Claude_Code-orange.svg" alt="Claude Code" />
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/version-2.0.0-brightgreen.svg" alt="Version 2.0.0" />
+  <img src="https://img.shields.io/badge/version-2.0.1-brightgreen.svg" alt="Version 2.0.1" />
   <img src="https://img.shields.io/badge/tests-396%20passing-brightgreen.svg" alt="396 tests passing" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
