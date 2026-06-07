@@ -37,6 +37,23 @@ const PATTERN = new RegExp({{PATTERN_JSON}});
 const REPO_FILTER_RAW = {{REPO_FILTER_JSON}};
 const REPO_FILTER = REPO_FILTER_RAW ? new RegExp(REPO_FILTER_RAW, 'i') : null;
 
+// Issue #30 — PreToolUse hooks inherit the SESSION environment. An
+// env-var prefix on the guarded command applies to the command's own
+// process, which runs only after this hook (or never, on block), so a
+// `process.env` read can never see it. The documented skip syntax is
+// therefore detected by parsing the command string itself.
+// Conservative: the assignment must be the command's leading token, so
+// a mention elsewhere (strings, comments) never triggers it.
+// `process.env` remains honored as a session-wide opt-out (operator
+// exported the var before launching the session).
+const SKIP_PREFIX = /^\s*VEX_SKIP_CR_PREPUSH=1\s+/;
+
+function skipOverrideVia(cmd: string): 'command-prefix' | 'session-env' | null {
+  if (SKIP_PREFIX.test(cmd)) return 'command-prefix';
+  if (process.env.VEX_SKIP_CR_PREPUSH === '1') return 'session-env';
+  return null;
+}
+
 {{INJECT_BLOCK}}
 const CODE_FILE_PATTERNS: RegExp[] = [
   /\.(ts|tsx|js|jsx|mjs|cjs)$/,
@@ -161,9 +178,10 @@ function main(): void {
     process.exit(0);
   }
 
-  if (process.env.VEX_SKIP_CR_PREPUSH === '1') {
-    console.error('\n⚠️  CR PRE-PUSH GUARD: skip override active (VEX_SKIP_CR_PREPUSH=1) — audited.\n');
-    appendAudit({ event: 'skip-override', repo: root, head });
+  const skipVia = skipOverrideVia(cmd);
+  if (skipVia) {
+    console.error(`\n⚠️  CR PRE-PUSH GUARD: skip override active (VEX_SKIP_CR_PREPUSH=1, via ${skipVia}) — audited.\n`);
+    appendAudit({ event: 'skip-override', via: skipVia, repo: root, head });
     process.exit(0);
   }
 
