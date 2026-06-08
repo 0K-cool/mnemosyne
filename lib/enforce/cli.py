@@ -130,11 +130,56 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
+# #36 — moving a retired rule into one of these subdirectories is the
+# established retirement convention. A recursive walk that regenerated
+# them would resurrect the very hook the operator retired; excluding
+# them here also lets --sync surface the now-unproduced hook as an
+# orphan (the intended retirement signal).
+_ARCHIVE_DIR_NAMES: frozenset[str] = frozenset(
+    {"archived-rules", "archive", "archived", ".archive"}
+)
+
+
 def _iter_memory_files(memory_dir: Path) -> list[Path]:
-    """All `*.md` files under memory_dir, recursive, sorted for determinism."""
+    """All `*.md` files under memory_dir, recursive, sorted for determinism.
+
+    Files under any archive subdirectory (see ``_ARCHIVE_DIR_NAMES``) are
+    excluded so archived rules are not regenerated (#36).
+    """
     if not memory_dir.exists():
         return []
-    return sorted(memory_dir.rglob("*.md"))
+    return sorted(
+        p
+        for p in memory_dir.rglob("*.md")
+        if not (_ARCHIVE_DIR_NAMES & set(p.relative_to(memory_dir).parts))
+    )
+
+
+# #37 — a file that declares an `enforce:` key in its frontmatter is an
+# enforcement candidate; a parse failure on it is a real error worth the
+# exit code. A plain note or prose file whose YAML happens to break is
+# not — counting it as a failure breaks cron/CI on organically-grown
+# memory dirs.
+_ENFORCE_KEY_RE = re.compile(r"^\s*enforce:", re.MULTILINE)
+
+
+def _looks_like_enforce_rule(md: str) -> bool:
+    """Heuristic: did this file attempt to declare an `enforce:` rule?
+
+    Scoped to the frontmatter region (between the opening ``---`` and the
+    next ``---``, tolerant of broken YAML) so body prose mentioning
+    "enforce" doesn't trip it. A file with no leading ``---`` is never a
+    candidate.
+    """
+    stripped = md.lstrip()
+    if not stripped.startswith("---"):
+        return False
+    region_lines = []
+    for line in stripped.splitlines()[1:]:  # drop opening ---
+        if line.strip() == "---":
+            break
+        region_lines.append(line)
+    return bool(_ENFORCE_KEY_RE.search("\n".join(region_lines)))
 
 
 _GENERATED_AT_RE = re.compile(r"^// Generated at:.*$", re.MULTILINE)
@@ -172,6 +217,15 @@ def _process_one(
     try:
         meta, _ = parse_memory_entry(md)
     except GenerationError as exc:
+        # #37 — only a file that reaches for `enforce:` and fails to parse
+        # is a real failure. Plain notes (no frontmatter) and prose files
+        # with incidentally-broken YAML are not enforcement candidates;
+        # treat them as skips (same status as a recall-only entry) so they
+        # don't pollute the exit code.
+        if not _looks_like_enforce_rule(md):
+            _log.debug("skipping %s (not an enforcement entry): %s",
+                       memory_path.name, exc)
+            return True, None, None
         return False, f"{memory_path.name}: {exc}", None
 
     if "enforce" not in meta:
