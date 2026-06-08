@@ -163,6 +163,13 @@ def pick_template(
 
 _PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_][A-Z0-9_]*)\}\}")
 
+# v2.1.0 — only the block-on-match family carries a warn (soft) variant.
+# Specialized guards (cr-prepush, force-push, credential-leak) have
+# flow-specific block semantics with no soft form.
+_WARN_CAPABLE_TEMPLATE_RE = re.compile(
+    r"^block-on-match-guard\.(ts|py|sh)\.template$"
+)
+
 # Characters that can break out of a `// line comment` in TS/JS source.
 # Replaced with a single space so the value still appears (truncated) in
 # the generated header but cannot inject code on a new line.
@@ -246,31 +253,20 @@ def _render(template_text: str, params: dict[str, str]) -> str:
     return rendered
 
 
-def _build_injection_snippet(enforce: dict[str, Any], body: str) -> tuple[str, str]:
-    """Build the TS code snippets that the template substitutes when
-    inject_on_match is enabled.
+def _rule_text(enforce: dict[str, Any], body: str) -> str:
+    """Rule text destined for additionalContext emission (inject / warn).
 
-    Returns ``(inject_block, inject_call)``:
-      - ``inject_block``: top-level TS lines (constant + function), or empty
-      - ``inject_call``: the line inside main() that triggers re-injection,
-        or empty when injection is disabled
-
-    The injected text is capped at ~4 chars/token so context spend stays
-    predictable for operators tuning ``inject_token_budget``.
+    Shared by Phase 2 re-injection and v2.1.0 warn mode: selects
+    ``inject_text`` (falling back to the entry body), neutralises
+    template-like ``{{...}}`` sequences so user text cannot trip
+    ``_render``'s placeholder-residue guard, and caps to ~4 chars/token
+    of ``inject_token_budget`` so context spend stays predictable.
+    Returns "" when there is no usable text.
     """
-    if not enforce.get("inject_on_match"):
-        return "", ""
-
     text = enforce.get("inject_text") or body.strip()
     if not text:
-        # Defensive: if both inject_text and body are empty, no point emitting
-        # an empty additionalContext. Treat as disabled.
-        return "", ""
+        return ""
 
-    # Neutralise template-like sequences so user text containing literal
-    # `{{...}}` cannot trip _render's placeholder-residue guard. The
-    # injected JSON literal already escapes quotes/backslashes; we only
-    # need to break the `{{` / `}}` pairs the placeholder regex matches.
     text = text.replace("{{", "{ {").replace("}}", "} }")
 
     # Cap to char budget. Keep the truncation suffix INSIDE the budget so
@@ -284,6 +280,26 @@ def _build_injection_snippet(enforce: dict[str, Any], body: str) -> tuple[str, s
         # tail-truncated suffix so we never exceed char_budget.
         if len(text) > char_budget:
             text = suffix[-char_budget:]
+    return text
+
+
+def _build_injection_snippet(enforce: dict[str, Any], body: str) -> tuple[str, str]:
+    """Build the TS code snippets that the template substitutes when
+    inject_on_match is enabled.
+
+    Returns ``(inject_block, inject_call)``:
+      - ``inject_block``: top-level TS lines (constant + function), or empty
+      - ``inject_call``: the line inside main() that triggers re-injection,
+        or empty when injection is disabled
+    """
+    if not enforce.get("inject_on_match"):
+        return "", ""
+
+    text = _rule_text(enforce, body)
+    if not text:
+        # Defensive: if both inject_text and body are empty, no point emitting
+        # an empty additionalContext. Treat as disabled.
+        return "", ""
 
     text_json = json.dumps(text)
     inject_block = (
@@ -324,7 +340,24 @@ def generate_hook(md: str, template_dir: Path) -> str:
         )
     template_text = template_path.read_text(encoding="utf-8")
 
+    # v2.1.0 — warn mode is only renderable by the block-on-match family.
+    # The schema rejects the explicit-template mismatch; this guard covers
+    # the TEMPLATE_PATTERNS dispatch path (which only ever selects
+    # specialized guards — block-on-match is explicit-only).
+    mode = enforce["mode"]
+    if mode == "warn" and not _WARN_CAPABLE_TEMPLATE_RE.match(template_path.name):
+        raise GenerationError(
+            f"mode: warn requires the block-on-match template family; "
+            f"selected {template_path.name!r} which has no warn variant. "
+            f"Set template: block-on-match-guard.<lang>.template explicitly."
+        )
+
     inject_block, inject_call = _build_injection_snippet(enforce, body)
+
+    # Warn mode always carries the rule text — a soft hook whose nudge
+    # the agent cannot see is pointless. Independent of inject_on_match
+    # (which remains the block-mode opt-in, TS-only).
+    warn_text = _rule_text(enforce, body) if mode == "warn" else ""
 
     # Build the substitution dict. Use json.dumps for the regex pattern
     # so any quotes / backslashes survive the round-trip into TypeScript
@@ -375,6 +408,20 @@ def generate_hook(md: str, template_dir: Path) -> str:
         "GENERATED_FROM_SH": _safe_for_shell_dollar_quote(enforce["generated_from"]),
         "INJECT_BLOCK": inject_block,
         "INJECT_CALL": inject_call,
+        # v2.1.0 — soft/hard on-match action selection. The warn function
+        # definitions live in the block-on-match templates unconditionally;
+        # only the action call site and the nudge text are substituted.
+        # json.dumps output is a valid string literal in both TS and
+        # Python (shared JSON escape subset), so one encoding serves both.
+        "ON_MATCH_FN_TS": "emitWarn" if mode == "warn" else "emitBlock",
+        "ON_MATCH_FN_SNAKE": "emit_warn" if mode == "warn" else "emit_block",
+        "WARN_TEXT_TS": json.dumps(warn_text),
+        "WARN_TEXT_PY": json.dumps(warn_text),
+        "WARN_CONTEXT_JSON_SH": (
+            _safe_for_shell_dollar_quote(json.dumps({"additionalContext": warn_text}))
+            if warn_text
+            else "''"
+        ),
         # Phase 4.1: default applied here so the schema stays template-agnostic.
         "PROTECTED_BRANCHES_JSON": json.dumps(
             enforce.get("protected_branches", ["main", "master"])

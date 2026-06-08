@@ -81,6 +81,49 @@ emit_block() {
   exit 2
 }
 
+# v2.1.0 — soft (warn) on-match action. Nudges instead of blocking:
+# warning box to stderr for the operator, rule text to stdout as
+# additionalContext for the agent, audit `warn`, exit 0 (allow).
+# Unused when this hook was generated with mode: block.
+# Complete JSON object, pre-encoded at generation time — shell never
+# hand-rolls JSON.
+WARN_CONTEXT_JSON={{WARN_CONTEXT_JSON_SH}}
+
+emit_warn() {
+  local reason="$1"
+  local W=60
+  pad() {
+    local s="$1"
+    local len=${#s}
+    if [ "$len" -ge "$W" ]; then
+      printf '%s' "${s:0:$W}"
+    else
+      printf '%s%*s' "$s" "$((W - len))" ""
+    fi
+  }
+  {
+    echo
+    echo '┌──────────────────────────────────────────────────────────────┐'
+    printf '│%s│\n' "$(pad '  ⚠️  BLOCK-ON-MATCH GUARD — WARN (soft enforcement)')"
+    echo '├──────────────────────────────────────────────────────────────┤'
+    printf '│%s│\n' "$(pad "  Reason: $reason")"
+    printf '│%s│\n' "$(pad "  Pattern: $PATTERN")"
+    printf '│%s│\n' "$(pad '')"
+    printf '│%s│\n' "$(pad '  Source rule: {{GENERATED_FROM}}')"
+    printf '│%s│\n' "$(pad '')"
+    printf '│%s│\n' "$(pad '  Allowed this time — every warn is audited. Repeated')"
+    printf '│%s│\n' "$(pad '  bypasses can promote this rule to a hard block.')"
+    echo '└──────────────────────────────────────────────────────────────┘'
+    echo
+  } >&2
+  if [ -n "$WARN_CONTEXT_JSON" ]; then
+    printf '%s\n' "$WARN_CONTEXT_JSON"
+  fi
+  append_audit "$(jq -n --arg reason "$reason" --arg pattern "$PATTERN" \
+    '{event: "warn", reason: $reason, pattern: $pattern}')"
+  exit 0
+}
+
 main() {
   local input tool cmd
   if ! input=$(cat); then
@@ -110,10 +153,10 @@ main() {
     exit 0
   fi
   if [ "$rc" -ne 0 ]; then
-    emit_block "pattern evaluation failed (grep rc=$rc — pattern likely uses syntax invalid in grep ERE)"
+    {{ON_MATCH_FN_SNAKE}} "pattern evaluation failed (grep rc=$rc — pattern likely uses syntax invalid in grep ERE)"
   fi
 
-  emit_block "pattern matched"
+  {{ON_MATCH_FN_SNAKE}} "pattern matched"
 }
 
 main

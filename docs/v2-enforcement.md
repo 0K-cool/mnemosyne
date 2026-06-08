@@ -480,13 +480,94 @@ filesystem via `pathlib`. Same `PATTERN_JSON` substitution as TS
 (JSON-quoted strings are also valid Python string literals for the
 regex character set).
 
+## v2.1.0 — Soft-to-Hard Escalation (shipped)
+
+Soft enforcement (CLAUDE.md directives, memory rules) demonstrably
+fails under rationalization: the agent reads the rule, then argues
+itself past it at execution time. Until now the loop was manual — the
+operator notices repeated bypasses, then hand-writes a blocking hook.
+v2.1.0 makes that loop a first-class capability.
+
+### The two tiers
+
+`enforce.mode` selects the tier (default `block` — every pre-v2.1.0
+rule is unchanged):
+
+- **`mode: block`** — today's hard hook: pattern match → box to
+  stderr, audit `block`, exit 2.
+- **`mode: warn`** — the soft tier: pattern match → warning box to
+  stderr (operator), rule text to stdout as `additionalContext` (the
+  agent sees its own rule at the moment of bypass), audit `warn`,
+  exit 0 (allow). Scoped to the block-on-match template family
+  (ts/py/sh); specialized guards have no warn variant — schema and
+  generator both reject the pairing.
+
+### The escalation policy
+
+```yaml
+enforce:
+  tool: Bash
+  pattern: "gh pr create"
+  hook: .claude/hooks/auto/pr-rate.ts
+  generated_from: memory/feedback_api_batching.md
+  template: block-on-match-guard.ts.template
+  mode: warn
+  escalation:
+    threshold: 3       # warn events …
+    window_days: 7     # … inside this rolling window
+```
+
+`python -m enforce.audit --memory-dir memory` joins declared policies
+against the audit logs (join key: `audit_log` basename stem), counts
+`warn` events inside the window (timestamps parsed across all three
+template dialects), and reports crossers as **READY TO ESCALATE** —
+in the table, in `--json` (`escalation_ready`, `warns_in_window`),
+and optionally:
+
+- `--webhook-url` / `MNEMOSYNE_WEBHOOK_URL` — one POST per READY rule
+  (JSON with machine fields + a Discord-compatible `content` line;
+  http/https only, 5s timeout, fail-soft).
+- `--fail-on-escalation` — exit 3 so cron/CI can alert.
+
+### Promotion (`--apply`)
+
+Escalation is **regeneration, not registration**: the rule file is the
+single source of truth, so promotion edits the rule and regenerates —
+the hook can never drift from the rule.
+
+1. Operator-gated: per-rule `[y/N]` prompt (`--yes` for explicitly
+   non-interactive runs).
+2. Line-targeted rewrite: `mode: warn` → `mode: block`; the consumed
+   `escalation:` block is removed (promotion is its terminal state).
+   Atomic tempfile + replace; the rewritten rule is revalidated
+   *before* anything is written.
+3. Hook regeneration delegates to the standard `--rule` CLI path —
+   the same atomic-write pipeline every generated hook goes through.
+
+The hook file is already installed and registered (registration is an
+install-time operator act; Mnemosyne never touches settings.json), so
+promotion changes file *contents* only — zero new consent surface, and
+the hard form is live from the next session.
+
+### Why apply is gated, not automatic
+
+Audit logs are operator-trust inputs: anything that can append to
+`.claude/logs/*.audit.jsonl` can manufacture warn events and force a
+rule across its threshold. Escalation only ever *tightens* enforcement
+(availability nuisance, not a bypass), but the human stays in the loop
+by default — review the READY excerpts, then `--apply`.
+
 ## What's still TODO (subsequent PRs)
 - **Phase 5.1+ — port additional templates to py / sh**: cr-prepush
   (git diff + cache logic), force-push-guard (`git rev-parse`
   shelling), credential-leak-guard (multi-tool dispatch). Each is
   its own focused PR.
 - **Phase 5.x — re-injection ports**: lift `inject_on_match` to the
-  py / sh templates so Phase 2 isn't TS-only.
+  py / sh templates so Phase 2 isn't TS-only (v2.1.0's warn nudge
+  already emits `additionalContext` from all three ports).
+- **Retirement sync (#29)**: archiving a rule must propose
+  deregistering its generated hook — the missing half of the
+  rule↔hook contract. Reuses the `--memory-dir` join shipped here.
 
 ## Why opt-in / why now
 
@@ -502,6 +583,7 @@ Phase 1 ships now because it sets up the contract. The rest of v2 builds on this
 | Schema drift between v1 and v2 memory entries | `enforce` block is additive — v1 entries continue to work unchanged. |
 | Template / memory entry drift | Generated hook header includes `generated_from` path; orphan detection in the upcoming `mnemosyne audit` command (Phase 3). |
 | False-positive blocks waste operator time | Per-rule `freshness_secs`; documented `VEX_SKIP_*` env override with audit logging. |
+| Audit-log poisoning forces escalation (v2.1.0) | Writable logs can manufacture `warn` events that cross a threshold. Escalation only ever tightens (no bypass primitive); `--apply` is operator-gated by default with per-rule confirmation; READY output names the log path for review; unparseable timestamps never count. |
 
 ## References
 

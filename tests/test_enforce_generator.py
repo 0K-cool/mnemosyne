@@ -1010,5 +1010,97 @@ class TestPhase5MultiLanguage(unittest.TestCase):
         self.assertIn("cr-prepush-guard.ts.template", str(ctx.exception))
 
 
+class TestWarnMode(unittest.TestCase):
+    """v2.1.0 — mode: warn renders the soft on-match action."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.warn_md = (FIXTURE_DIR / "warn-rule.md").read_text()
+
+    def _md(self, language: str) -> str:
+        """Warn fixture retargeted at another language port."""
+        md = self.warn_md.replace(
+            "template: block-on-match-guard.ts.template",
+            f"template: block-on-match-guard.{language}.template\n"
+            f"  language: {language}",
+        )
+        return md.replace("hook: .claude/hooks/auto/pr-rate.ts",
+                          f"hook: .claude/hooks/auto/pr-rate.{language}")
+
+    def test_warn_ts_action_is_emit_warn(self):
+        src = generate_hook(self.warn_md, template_dir=TEMPLATE_DIR)
+        self.assertIn("emitWarn('pattern matched')", src)
+        self.assertNotIn("emitBlock('pattern matched')", src)
+        self.assertIn("'warn'", src)  # audit event name
+        _assert_bun_build_clean(self, src)
+
+    def test_warn_ts_embeds_rule_text(self):
+        """The memory entry body rides into the hook as the warn nudge."""
+        src = generate_hook(self.warn_md, template_dir=TEMPLATE_DIR)
+        self.assertIn("Batch related work", src)
+
+    def test_block_default_action_unchanged(self):
+        """A block-mode rule (default) keeps today's emitBlock action."""
+        md = self.warn_md.replace("  mode: warn\n", "").replace(
+            "  escalation:\n    threshold: 3\n    window_days: 7\n", ""
+        )
+        src = generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("emitBlock('pattern matched')", src)
+        self.assertNotIn("emitWarn('pattern matched')", src)
+        _assert_bun_build_clean(self, src)
+
+    def test_warn_py_action_is_emit_warn(self):
+        src = generate_hook(self._md("py"), template_dir=TEMPLATE_DIR)
+        self.assertIn('emit_warn("pattern matched")', src)
+        self.assertNotIn('emit_block("pattern matched")', src)
+        # Must be valid Python.
+        import py_compile
+        with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as fh:
+            fh.write(src)
+            tmp = fh.name
+        try:
+            py_compile.compile(tmp, doraise=True)
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
+    def test_warn_sh_action_is_emit_warn(self):
+        src = generate_hook(self._md("sh"), template_dir=TEMPLATE_DIR)
+        self.assertIn('emit_warn "pattern matched"', src)
+        self.assertNotIn('emit_block "pattern matched"', src)
+        # Eval-failure path follows the mode too — soft tier never blocks.
+        self.assertNotIn('emit_block "pattern evaluation failed', src)
+        # Must be valid bash.
+        with tempfile.NamedTemporaryFile(suffix=".sh", mode="w", delete=False) as fh:
+            fh.write(src)
+            tmp = fh.name
+        try:
+            r = subprocess.run(  # nosec B603, B607 — syntax check only
+                ["bash", "-n", tmp], capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(r.returncode, 0, f"bash -n failed:\n{r.stderr}")
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
+    def test_warn_mode_rejects_dispatched_specialized_template(self):
+        """Without an explicit template, dispatch only ever selects
+        specialized guards (block-on-match is explicit-only) — which
+        have no warn variant. The generator must refuse loudly."""
+        md = (
+            "---\n"
+            "name: warn-dispatch\n"
+            "type: feedback\n"
+            "enforce:\n"
+            "  tool: Bash\n"
+            '  pattern: "git push -u origin"\n'
+            "  hook: .claude/hooks/auto/warn-dispatch.ts\n"
+            "  generated_from: memory/wd.md\n"
+            "  mode: warn\n"
+            "---\nBody.\n"
+        )
+        with self.assertRaises(GenerationError) as ctx:
+            generate_hook(md, template_dir=TEMPLATE_DIR)
+        self.assertIn("block-on-match", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
