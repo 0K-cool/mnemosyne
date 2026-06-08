@@ -4,11 +4,12 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.1.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.1.0
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
 
-## [Unreleased]
+## [2.1.0] — 2026-06-07
 
 **Soft-to-hard escalation — rules can now start as nudges and earn
 their teeth.** A `mode: warn` rule allows-but-audits with the rule text
