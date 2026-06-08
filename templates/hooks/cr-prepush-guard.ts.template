@@ -42,11 +42,13 @@ const REPO_FILTER = REPO_FILTER_RAW ? new RegExp(REPO_FILTER_RAW, 'i') : null;
 // process, which runs only after this hook (or never, on block), so a
 // `process.env` read can never see it. The documented skip syntax is
 // therefore detected by parsing the command string itself.
-// Conservative: the assignment must be the command's leading token, so
-// a mention elsewhere (strings, comments) never triggers it.
-// `process.env` remains honored as a session-wide opt-out (operator
-// exported the var before launching the session).
-const SKIP_PREFIX = /^\s*VEX_SKIP_CR_PREPUSH=1\s+/;
+// Conservative: the assignment must be the command's leading token on
+// the SAME line as the guarded command (horizontal whitespace only — a
+// newline after the assignment makes it a standalone shell statement,
+// not a prefix), so a mention elsewhere (strings, comments, own line)
+// never triggers it. `process.env` remains honored as a session-wide
+// opt-out (operator exported the var before launching the session).
+const SKIP_PREFIX = /^[ \t]*VEX_SKIP_CR_PREPUSH=1[ \t]+\S/;
 
 function skipOverrideVia(cmd: string): 'command-prefix' | 'session-env' | null {
   if (SKIP_PREFIX.test(cmd)) return 'command-prefix';

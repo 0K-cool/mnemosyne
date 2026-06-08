@@ -146,6 +146,18 @@ class TestSkipOverride(unittest.TestCase):
         r = self._run_hook(f"{SKIP_VAR}=0 git push -u origin feat/x")
         self.assertEqual(r.returncode, 2)
 
+    def test_skip_var_on_own_line_does_not_skip(self):
+        """Assignment on its own line is a shell statement, not a command
+        prefix — the push on the next line runs without the var. Must NOT skip."""
+        r = self._run_hook(f"{SKIP_VAR}=1\ngit push -u origin feat/x")
+        self.assertEqual(r.returncode, 2, "newline-separated assignment must not satisfy the skip")
+
+    def test_skip_var_trailing_space_newline_does_not_skip(self):
+        """Assignment + trailing space + newline is still a standalone
+        statement, not a prefix on the next line's push. Must NOT skip."""
+        r = self._run_hook(f"{SKIP_VAR}=1 \ngit push -u origin feat/x")
+        self.assertEqual(r.returncode, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
