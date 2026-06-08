@@ -9,8 +9,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Claude_Code-orange.svg" alt="Claude Code" />
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/version-2.1.0-brightgreen.svg" alt="Version 2.1.0" />
-  <img src="https://img.shields.io/badge/tests-462%20passing-brightgreen.svg" alt="462 tests passing" />
+  <img src="https://img.shields.io/badge/version-2.1.1-brightgreen.svg" alt="Version 2.1.1" />
+  <img src="https://img.shields.io/badge/tests-469%20passing-brightgreen.svg" alt="469 tests passing" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
   <img src="https://img.shields.io/badge/v2-memory--driven_enforcement-9d4edd.svg" alt="v2 memory-driven enforcement" />
@@ -334,7 +334,7 @@ The plugin auto-detects which tier is available and uses the best one.
 ## Test Suite
 
 ```bash
-make test          # Run all 462 tests (362 Python + 100 bun)
+make test          # Run all 469 tests (369 Python + 100 bun)
 make test-fast     # Unit + adversarial only (<1s)
 make test-integration  # Hook I/O + plugin structure
 ```
@@ -350,14 +350,14 @@ make test-integration  # Hook I/O + plugin structure
 | `test_hook_io.py` | Python unittest | 9 | Subprocess JSON contracts for all 4 hooks |
 | `test_enforce_schema.py` | Python unittest | 80 | v2 `enforce:` block validation: required fields, paths, strict char allow-list, ReDoS guard, regex compile, template / tool compatibility, injection fields, protected_branches, credential_patterns, language, mode, escalation policy |
 | `test_enforce_generator.py` | Python unittest | 57 | v2 generator: parse, dispatch, render, per-context sanitisers, warn-mode emission, bun-build / `compile()` / `bash -n` smoke tests across all template + language combinations |
-| `test_enforce_cli.py` | Python unittest | 12 | v2 `mnemosyne enforce` CLI: walk memory dir, idempotent regen, dry-run, single-rule mode, orphan reporting, symlink-safe atomic write |
+| `test_enforce_cli.py` | Python unittest | 19 | v2 `mnemosyne enforce` CLI: walk memory dir, idempotent regen, dry-run, single-rule mode, orphan reporting, symlink-safe atomic write, archive-dir skip + parse-failure classification (v2.1.1) |
 | `test_enforce_audit.py` | Python unittest | 12 | v2 audit aggregator: per-rule counts, threshold escalation, JSON output |
 | `test_enforce_escalation.py` | Python unittest | 28 | v2.1.0 soft-to-hard escalation: timestamp dialects, windowed warn counting, policy join, READY evaluation, gated apply (rewrite + revalidate + regenerate), webhook scheme allow-list + fail-soft, CLI exit codes |
 | `test_enforce_sync.py` | Python unittest | 9 | v2.1.0 `--sync` retirement pass: provenance check, foreign-file guard, gated deletion, sidecar preservation |
 | `test_enforce_skip_override.py` | Python unittest | 8 | Skip-override detection from `tool_input.command` (same-line prefix only), session-env path, behavioral subprocess runs against a throwaway git repo |
 | `test_memory_validation.test.ts` | Bun test | 100 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding + read-time scanner) |
 
-**Total: 462 tests** (362 Python + 100 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
+**Total: 469 tests** (369 Python + 100 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
 
 ## License
 
