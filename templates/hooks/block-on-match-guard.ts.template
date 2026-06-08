@@ -74,6 +74,35 @@ function emitBlock(reason: string): never {
   process.exit(2);
 }
 
+// v2.1.0 — soft (warn) on-match action. Nudges instead of blocking:
+// warning box to stderr for the operator, rule text to stdout as
+// additionalContext for the agent, audit `warn`, exit 0 (allow).
+// Unused when this hook was generated with mode: block.
+const WARN_TEXT = {{WARN_TEXT_TS}};
+function emitWarn(reason: string): never {
+  const W = 60;
+  const pad = (s: string): string => s.length >= W ? s.slice(0, W) : s + ' '.repeat(W - s.length);
+  const lines = [
+    '',
+    '┌──────────────────────────────────────────────────────────────┐',
+    `│${pad('  ⚠️  BLOCK-ON-MATCH GUARD — WARN (soft enforcement)')}│`,
+    '├──────────────────────────────────────────────────────────────┤',
+    `│${pad('  Reason: ' + reason)}│`,
+    `│${pad('  Pattern: ' + PATTERN.source)}│`,
+    `│${pad('')}│`,
+    `│${pad('  Source rule: {{GENERATED_FROM}}')}│`,
+    `│${pad('')}│`,
+    `│${pad('  Allowed this time — every warn is audited. Repeated')}│`,
+    `│${pad('  bypasses can promote this rule to a hard block.')}│`,
+    '└──────────────────────────────────────────────────────────────┘',
+    '',
+  ];
+  console.error(lines.join('\n'));
+  if (WARN_TEXT) console.log(JSON.stringify({ additionalContext: WARN_TEXT }));
+  appendAudit({ event: 'warn', reason, pattern: PATTERN.source });
+  process.exit(0);
+}
+
 {{INJECT_BLOCK}}
 function main(): void {
   let data: HookInput;
@@ -95,7 +124,7 @@ function main(): void {
   }
 
 {{INJECT_CALL}}
-  emitBlock('pattern matched');
+  {{ON_MATCH_FN_TS}}('pattern matched');
 }
 
 main();

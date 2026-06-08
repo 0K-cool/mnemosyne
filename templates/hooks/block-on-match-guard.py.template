@@ -74,6 +74,41 @@ def emit_block(reason: str) -> "None":
     sys.exit(2)
 
 
+# v2.1.0 — soft (warn) on-match action. Nudges instead of blocking:
+# warning box to stderr for the operator, rule text to stdout as
+# additionalContext for the agent, audit `warn`, exit 0 (allow).
+# Unused when this hook was generated with mode: block.
+WARN_TEXT = {{WARN_TEXT_PY}}
+
+
+def emit_warn(reason: str) -> "None":
+    width = 60
+
+    def pad(s: str) -> str:
+        return s[:width] if len(s) >= width else s + " " * (width - len(s))
+
+    lines = [
+        "",
+        "┌──────────────────────────────────────────────────────────────┐",
+        f"│{pad('  ⚠️  BLOCK-ON-MATCH GUARD — WARN (soft enforcement)')}│",
+        "├──────────────────────────────────────────────────────────────┤",
+        f"│{pad('  Reason: ' + reason)}│",
+        f"│{pad('  Pattern: ' + PATTERN.pattern)}│",
+        f"│{pad('')}│",
+        f"│{pad('  Source rule: {{GENERATED_FROM}}')}│",
+        f"│{pad('')}│",
+        f"│{pad('  Allowed this time — every warn is audited. Repeated')}│",
+        f"│{pad('  bypasses can promote this rule to a hard block.')}│",
+        "└──────────────────────────────────────────────────────────────┘",
+        "",
+    ]
+    print("\n".join(lines), file=sys.stderr)
+    if WARN_TEXT:
+        print(json.dumps({"additionalContext": WARN_TEXT}))
+    append_audit({"event": "warn", "reason": reason, "pattern": PATTERN.pattern})
+    sys.exit(0)
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
@@ -101,7 +136,7 @@ def main() -> None:
     if not PATTERN.search(cmd):
         sys.exit(0)
 
-    emit_block("pattern matched")
+    {{ON_MATCH_FN_SNAKE}}("pattern matched")
 
 
 if __name__ == "__main__":
