@@ -421,5 +421,142 @@ class TestEnforceSymlinkDefense(unittest.TestCase):
         self.assertEqual(leftover, [], f"temp files leaked: {leftover}")
 
 
+class TestArchivedRulesSkipped(unittest.TestCase):
+    """#36 — rules under archive subdirectories must not be regenerated.
+
+    Moving a retired rule to ``memory/archived-rules/`` is the established
+    retirement convention. A recursive walk that regenerates it
+    resurrects the very hook the operator retired.
+    """
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.memory_dir = self.tmp / "memory"
+        self.memory_dir.mkdir()
+        self.output_dir = self.tmp / "hooks_auto"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_archived_rule_not_generated(self):
+        archive = self.memory_dir / "archived-rules"
+        archive.mkdir()
+        (archive / "retired.md").write_text(CR_PREPUSH_RULE)
+
+        rc, _out, err = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+
+        self.assertEqual(rc, 0, f"stderr: {err}")
+        self.assertFalse(
+            (self.output_dir / "cr-prepush.ts").exists(),
+            "archived rule was resurrected — must be skipped",
+        )
+
+    def test_active_rule_generated_alongside_archive(self):
+        (self.memory_dir / "active.md").write_text(CR_PREPUSH_RULE)
+        archive = self.memory_dir / "archive"
+        archive.mkdir()
+        other = CR_PREPUSH_RULE.replace(
+            "auto/cr-prepush.ts", "auto/other.ts"
+        ).replace("git push -u origin", "git fetch")
+        (archive / "old.md").write_text(other)
+
+        rc, _, err = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+
+        self.assertEqual(rc, 0, f"stderr: {err}")
+        self.assertTrue((self.output_dir / "cr-prepush.ts").exists())
+        self.assertFalse((self.output_dir / "other.ts").exists())
+
+    def test_archived_hook_reported_as_orphan(self):
+        """Once archived, the rule's previously-generated hook becomes an
+        orphan the --sync pass can offer to retire."""
+        (self.memory_dir / "live.md").write_text(CR_PREPUSH_RULE)
+        _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+        self.assertTrue((self.output_dir / "cr-prepush.ts").exists())
+
+        archive = self.memory_dir / "archived-rules"
+        archive.mkdir()
+        (self.memory_dir / "live.md").rename(archive / "live.md")
+
+        rc, _, err = _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+        self.assertEqual(rc, 0, f"stderr: {err}")
+        self.assertIn("orphan", err.lower())
+        self.assertIn("cr-prepush.ts", err)
+
+
+class TestParseFailureClassification(unittest.TestCase):
+    """#37 — non-rule parse failures must not pollute the exit code.
+
+    A memory dir organically accumulates plain notes (no frontmatter)
+    and the occasional file whose prose breaks YAML. Neither is an
+    enforcement candidate; counting them as failures breaks the exit
+    code for cron/CI. Only a file that reaches for ``enforce:`` and
+    fails to parse is a real error.
+    """
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.memory_dir = self.tmp / "memory"
+        self.memory_dir.mkdir()
+        self.output_dir = self.tmp / "hooks_auto"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write(self, name: str, body: str):
+        (self.memory_dir / name).write_text(body)
+
+    def _run(self):
+        return _run_cli(
+            "--memory-dir", str(self.memory_dir),
+            "--output-dir", str(self.output_dir),
+            "--template-dir", str(TEMPLATE_DIR),
+        )
+
+    def test_no_frontmatter_note_not_a_failure(self):
+        self._write("note.md", "# Just a plain note\n\nNo frontmatter here.\n")
+        rc, _, err = self._run()
+        self.assertEqual(rc, 0, f"plain note counted as failure; stderr: {err}")
+
+    def test_broken_yaml_without_enforce_not_a_failure(self):
+        self._write("broken.md", "---\nsummary: he said: hi\n---\nBody.\n")
+        rc, _, _ = self._run()
+        self.assertEqual(rc, 0, "broken-YAML non-rule must not fail the run")
+
+    def test_eligible_rule_alongside_notes_succeeds(self):
+        self._write("note.md", "plain note, no frontmatter\n")
+        self._write("rule.md", CR_PREPUSH_RULE)
+        rc, _, err = self._run()
+        self.assertEqual(rc, 0, f"stderr: {err}")
+        self.assertTrue((self.output_dir / "cr-prepush.ts").exists())
+
+    def test_broken_yaml_with_enforce_is_a_failure(self):
+        """A file reaching for enforce: that fails to parse IS surfaced."""
+        self._write(
+            "ruley.md",
+            "---\nname: x\nenforce:\n  tool: Bash\n  pattern: he said: hi\n---\nB\n",
+        )
+        rc, _, err = self._run()
+        self.assertEqual(rc, 1, "malformed enforce rule must count as failure")
+        self.assertIn("ruley.md", err)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

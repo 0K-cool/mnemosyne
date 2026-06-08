@@ -9,6 +9,28 @@ for versioning.
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
 
+## [Unreleased]
+
+**CLI robustness against real-world memory dirs — surfaced by PAI
+dogfood of v2.1.0.** Installing the first production warn rule against
+PAI's organically-grown memory directory exposed two `mnemosyne
+enforce` rough edges that never appear against clean test fixtures.
+
+### Fixed
+- **Archived rules no longer resurrected (#36).** The recursive memory
+  walk regenerated rules that had been retired by moving them into
+  `archived-rules/` — reinstalling the very hook the operator removed.
+  Files under `archived-rules/`, `archive/`, `archived/`, or `.archive/`
+  are now skipped at generation; their previously-generated hooks
+  surface as orphans under `--sync` (the intended retirement signal).
+- **Frontmatter-less notes no longer fail the run (#37).** A memory
+  dir accumulates plain notes and the occasional prose file with
+  incidentally-broken YAML; these were counted as failures, so the CLI
+  exited non-zero on any organic dir (`4 eligible, 10 failed` against
+  PAI's real memory). Non-rule parse failures are now skips; only a
+  file that declares an `enforce:` key and fails to parse counts as a
+  failure and reaches the exit code.
+
 ## [2.1.0] — 2026-06-07
 
 **Soft-to-hard escalation — rules can now start as nudges and earn
