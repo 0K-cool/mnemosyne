@@ -8,15 +8,21 @@ orphan hook files (files in the output dir that no memory entry produced).
 Usage:
   python -m enforce [--memory-dir DIR] [--output-dir DIR]
                     [--template-dir DIR] [--rule PATH]
-                    [--dry-run] [--force] [-v]
+                    [--dry-run] [--force] [--sync] [--yes] [-v]
 
 Or via the slash command (Phase 1.3, future): /mnemosyne-enforce
+
+v2.1.0 — `--sync` upgrades the orphan report into a gated retirement
+pass (#29): generated hooks whose source rule was archived/deleted are
+offered for deletion (provenance header required; per-file confirmation
+unless --yes; audit sidecars kept; with --dry-run, report only).
 
 Exit codes:
   0 — all eligible entries generated successfully (orphans are reported but
       do not change exit code)
-  1 — at least one memory entry failed (parse / schema / generation error)
-  2 — invalid CLI arguments / missing inputs
+  1 — at least one memory entry failed (parse / schema / generation error),
+      or a --sync deletion failed
+  2 — invalid CLI arguments / missing inputs (incl. --sync with --rule)
 
 Behavior contract is locked by tests/test_enforce_cli.py — change carefully.
 """
