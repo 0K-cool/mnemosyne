@@ -549,6 +549,17 @@ install-time operator act; Mnemosyne never touches settings.json), so
 promotion changes file *contents* only — zero new consent surface, and
 the hard form is live from the next session.
 
+### Retiring a rule (archive convention)
+
+To retire a rule, move its memory entry into an archive subdirectory —
+`archived-rules/`, `archive/`, `archived/`, or `.archive/`. The
+generator skips these on its recursive walk (so the rule is never
+regenerated), and `--sync` then reports the now-unproduced hook as an
+orphan you can delete. This is the inverse of promotion: the memory
+entry stays the source of truth, and retirement is expressed by where
+the file lives rather than by editing it. (Fixed in v2.1.1 — earlier
+versions resurrected archived rules on the next full run.)
+
 ### Why apply is gated, not automatic
 
 Audit logs are operator-trust inputs: anything that can append to
