@@ -117,12 +117,12 @@ PYTHONPATH=lib python -m enforce \
 # → `git push --force origin main` is now hard-blocked
 ```
 
-### Templates shipping in v2.0.0
+### Templates
 
 | Template | What it gates | Languages |
 |---|---|:---:|
 | `cr-prepush-guard` | `git push` until a fresh CodeRabbit review is on file (configurable freshness window + optional repo filter) | ts |
-| `block-on-match-guard` | "Always block" pattern matches (`rm -rf /`, destructive SQL, etc.) | ts • py • sh |
+| `block-on-match-guard` | Pattern matches (`rm -rf /`, destructive SQL, etc.) — hard block, or soft warn via `mode: warn` (v2.1.0) | ts • py • sh |
 | `force-push-guard` | `git push --force` to protected branches (default: `main`, `master`) | ts |
 | `credential-leak-guard` | `Edit` / `Write` / `MultiEdit` writes containing AWS keys, GitHub PATs, Slack tokens, PEM private keys, Stripe live keys, npm / GitLab tokens | ts |
 
@@ -131,6 +131,50 @@ Tool-aware templates parse arguments rather than relying on regex alone — `for
 ### Multi-language support
 
 Default emit language is TypeScript (zero-dep on bun). Set `language: py` or `language: sh` in the `enforce:` block to emit a stdlib-only Python hook or a `jq`-based shell hook instead.
+
+### Soft-to-hard escalation (v2.1.0)
+
+Rules can start as nudges and earn their teeth. A `mode: warn` rule
+allows the action but shows a warning, re-injects the rule text as
+`additionalContext` (the agent sees its own rule at the moment of
+bypass), and audits `warn`. Declare an `escalation:` policy and the
+audit aggregator promotes persistent offenders to a hard block — with
+your approval:
+
+```yaml
+enforce:
+  tool: Bash
+  pattern: "gh pr create"
+  hook: .claude/hooks/auto/pr-rate.ts
+  generated_from: memory/feedback_api_batching.md
+  template: block-on-match-guard.ts.template
+  mode: warn                # soft tier: warn + audit + allow
+  escalation:
+    threshold: 3            # warn events ...
+    window_days: 7          # ... inside this rolling window
+```
+
+```bash
+PYTHONPATH=lib python -m enforce.audit --memory-dir memory
+# → 🔺 READY TO ESCALATE — pr-rate: 3 warn(s) in 7d (threshold 3)
+
+PYTHONPATH=lib python -m enforce.audit --apply
+# → [y/N] per rule: flips `mode: warn` → `mode: block` in the memory
+#   entry (the rule stays the single source of truth) and regenerates
+#   the hook. Next bypass attempt is blocked.
+```
+
+Cron-friendly: `--fail-on-escalation` exits 3 when something is READY;
+`--webhook-url` (or `MNEMOSYNE_WEBHOOK_URL`) POSTs a Discord-compatible
+notification per READY rule. Promotion is operator-gated by default —
+audit logs are inputs an attacker could append to, so a human stays in
+the loop (escalation can only ever *tighten* enforcement, never loosen
+it).
+
+Retirement is the same contract in reverse: `python -m enforce --sync`
+finds generated hooks whose source rule was archived or deleted and
+offers a gated cleanup — provenance-checked (hand-written files are
+never touched), audit history preserved.
 
 ### What it doesn't do
 
@@ -290,7 +334,7 @@ The plugin auto-detects which tier is available and uses the best one.
 ## Test Suite
 
 ```bash
-make test          # Run all 396 tests (296 Python + 100 bun)
+make test          # Run all 462 tests (362 Python + 100 bun)
 make test-fast     # Unit + adversarial only (<1s)
 make test-integration  # Hook I/O + plugin structure
 ```
@@ -304,13 +348,16 @@ make test-integration  # Hook I/O + plugin structure
 | `test_content_scanner.py` | Python unittest | 56 | Read-time injection scanner (mirror of bun adversarial suite, applied to retrieved chunks) |
 | `test_integration.py` | Python unittest | 10 | Dual-mode detection, plugin structure |
 | `test_hook_io.py` | Python unittest | 9 | Subprocess JSON contracts for all 4 hooks |
-| `test_enforce_schema.py` | Python unittest | 65 | v2 `enforce:` block validation: required fields, paths, strict char allow-list, ReDoS guard, regex compile, template / tool compatibility, injection fields, protected_branches, credential_patterns, language |
-| `test_enforce_generator.py` | Python unittest | 51 | v2 generator: parse, dispatch, render, per-context sanitisers, bun-build / `compile()` / `bash -n` smoke tests across all template + language combinations |
+| `test_enforce_schema.py` | Python unittest | 80 | v2 `enforce:` block validation: required fields, paths, strict char allow-list, ReDoS guard, regex compile, template / tool compatibility, injection fields, protected_branches, credential_patterns, language, mode, escalation policy |
+| `test_enforce_generator.py` | Python unittest | 57 | v2 generator: parse, dispatch, render, per-context sanitisers, warn-mode emission, bun-build / `compile()` / `bash -n` smoke tests across all template + language combinations |
 | `test_enforce_cli.py` | Python unittest | 12 | v2 `mnemosyne enforce` CLI: walk memory dir, idempotent regen, dry-run, single-rule mode, orphan reporting, symlink-safe atomic write |
 | `test_enforce_audit.py` | Python unittest | 12 | v2 audit aggregator: per-rule counts, threshold escalation, JSON output |
+| `test_enforce_escalation.py` | Python unittest | 28 | v2.1.0 soft-to-hard escalation: timestamp dialects, windowed warn counting, policy join, READY evaluation, gated apply (rewrite + revalidate + regenerate), webhook scheme allow-list + fail-soft, CLI exit codes |
+| `test_enforce_sync.py` | Python unittest | 9 | v2.1.0 `--sync` retirement pass: provenance check, foreign-file guard, gated deletion, sidecar preservation |
+| `test_enforce_skip_override.py` | Python unittest | 8 | Skip-override detection from `tool_input.command` (same-line prefix only), session-env path, behavioral subprocess runs against a throwaway git repo |
 | `test_memory_validation.test.ts` | Bun test | 100 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding + read-time scanner) |
 
-**Total: 396 tests** (296 Python + 100 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
+**Total: 462 tests** (362 Python + 100 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
 
 ## License
 
