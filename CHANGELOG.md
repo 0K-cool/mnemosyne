@@ -8,6 +8,41 @@ for versioning.
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
 
+## [Unreleased]
+
+**Soft-to-hard escalation — rules can now start as nudges and earn
+their teeth.** A `mode: warn` rule allows-but-audits with the rule text
+re-injected as `additionalContext`; an `escalation:` policy promotes it
+to a hard block when warn events cross a threshold inside a rolling
+window, gated on operator approval.
+
+### Added
+- `enforce.mode: warn | block` (default `block`, fully backward
+  compatible). Warn variant emitted by the block-on-match family in
+  all three language ports (ts/py/sh).
+- `enforce.escalation: {threshold, window_days}` schema (requires
+  `mode: warn`; unknown keys rejected).
+- `enforce.audit`: `warn` event counting (+ table column),
+  `--memory-dir` policy join, time-windowed evaluation across all
+  three timestamp dialects, READY TO ESCALATE reporting (table +
+  JSON), `--apply`/`--yes` operator-gated promotion (rule rewrite +
+  hook regeneration via the standard `--rule` path),
+  `--webhook-url`/`MNEMOSYNE_WEBHOOK_URL` notifications
+  (Discord-compatible payload, http/https only, fail-soft),
+  `--fail-on-escalation` (exit 3) for cron/CI alerting.
+
+### Fixed
+- cr-prepush template: documented `VEX_SKIP_CR_PREPUSH=1 <cmd>` skip
+  was unreachable (hook read `process.env`, which a command-prefix
+  assignment never reaches) — skip is now parsed from the command
+  string, same-line prefix only, audited with the path taken (#30,
+  PR #31).
+
+### Security
+- Log-poisoning forced-escalation analysed and documented in the risk
+  register: escalation only ever tightens enforcement; apply is
+  operator-gated per rule; webhook scheme allow-listed.
+
 ## [2.0.1] — 2026-05-08
 
 **Template hardening — surfaced by PAI dogfood.** Three PAI dogfood
