@@ -30,6 +30,13 @@ window, gated on operator approval.
   `--webhook-url`/`MNEMOSYNE_WEBHOOK_URL` notifications
   (Discord-compatible payload, http/https only, fail-soft),
   `--fail-on-escalation` (exit 3) for cron/CI alerting.
+- `enforce --sync` retirement pass (#29): gated deletion of generated
+  orphan hooks whose source rule was archived/deleted. Provenance
+  header check (foreign files never touched), per-file confirmation
+  (`--yes` for non-interactive), audit sidecars preserved,
+  settings.json deregistration reminder per deletion, `--dry-run`
+  report-only mode. Closes the retirement half of the rule↔hook
+  contract.
 
 ### Fixed
 - cr-prepush template: documented `VEX_SKIP_CR_PREPUSH=1 <cmd>` skip
