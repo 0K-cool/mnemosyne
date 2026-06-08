@@ -16,6 +16,10 @@ Schema v0.1:
     generator_version: <semver>         # optional
     generated_at: <ISO 8601>            # optional
     repo_filter: <regex string>         # optional, must compile if present
+    mode: warn | block                  # optional, default block (v2.1.0)
+    escalation:                         # optional, requires mode: warn (v2.1.0)
+      threshold: <int >= 1>             #   required — warn events in window
+      window_days: <int >= 1>           #   optional, default 7
 
 Security:
   - Path-traversal guard on `hook` and `audit_log`
@@ -66,6 +70,16 @@ DEFAULT_LANGUAGE = "ts"
 # 4 * inject_token_budget chars per the standard tokenizer estimate.
 DEFAULT_INJECT_TOKEN_BUDGET = 256
 MAX_INJECT_TOKEN_BUDGET = 1024
+
+# v2.1.0 — soft-to-hard escalation.
+# `mode: warn` generates a soft hook (inject rule text, audit `warn`,
+# allow); `mode: block` is today's hard hook and the default. The
+# optional `escalation:` policy promotes warn → block when warn events
+# cross `threshold` within `window_days` (operator-gated apply).
+KNOWN_MODES: frozenset[str] = frozenset({"warn", "block"})
+DEFAULT_MODE = "block"
+DEFAULT_ESCALATION_WINDOW_DAYS = 7
+_ESCALATION_KEYS: frozenset[str] = frozenset({"threshold", "window_days"})
 
 
 class EnforceValidationError(ValueError):
@@ -434,5 +448,66 @@ def validate_enforce_block(raw: Any) -> dict[str, Any]:
                 raise EnforceValidationError(
                     f"protected_branches[{i}] must not contain whitespace, got {item!r}"
                 )
+
+    # ---- v2.1.0: soft-to-hard escalation fields ----
+
+    # mode — warn (soft: inject rule text, audit, allow) or block (hard).
+    # Default block keeps every pre-v2.1.0 rule's behavior unchanged.
+    raw_mode = out.get("mode", DEFAULT_MODE)
+    if not isinstance(raw_mode, str) or raw_mode not in KNOWN_MODES:
+        raise EnforceValidationError(
+            f"mode must be one of {sorted(KNOWN_MODES)}, got {raw_mode!r}"
+        )
+    out["mode"] = raw_mode
+
+    # mode: warn is scoped to the block-on-match template family in
+    # v2.1.0 — specialized guards (cr-prepush, force-push,
+    # credential-leak) have flow-specific block semantics with no warn
+    # variant. Only checkable here when `template` is explicit; the
+    # dispatch path is enforced in generator.generate_hook (the schema
+    # cannot see TEMPLATE_PATTERNS selection).
+    if out["mode"] == "warn" and "template" in out:
+        if not _BLOCK_ON_MATCH_GUARD_RE.match(out["template"]):
+            raise EnforceValidationError(
+                f"mode: warn requires a block-on-match template family "
+                f"(block-on-match-guard.*.template); got {out['template']!r}. "
+                f"Specialized guards have no warn variant in v2.1.0."
+            )
+
+    # escalation — optional soft-to-hard promotion policy. Only
+    # meaningful on a warn rule: escalating a block rule is a no-op by
+    # construction, so declaring it is treated as an authoring error.
+    if "escalation" in out:
+        candidate = out["escalation"]
+        if not isinstance(candidate, dict):
+            raise EnforceValidationError(
+                f"escalation must be a mapping, got {type(candidate).__name__}"
+            )
+        if out["mode"] != "warn":
+            raise EnforceValidationError(
+                "escalation requires mode: warn — a block rule is already "
+                "the hard form, there is nothing to escalate to"
+            )
+        unknown = set(candidate) - _ESCALATION_KEYS
+        if unknown:
+            raise EnforceValidationError(
+                f"escalation has unknown key(s) {sorted(unknown)!r}; "
+                f"allowed: {sorted(_ESCALATION_KEYS)}"
+            )
+        if "threshold" not in candidate:
+            raise EnforceValidationError(
+                "escalation.threshold is required (warn events in the window)"
+            )
+        threshold = candidate["threshold"]
+        if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1:
+            raise EnforceValidationError(
+                f"escalation.threshold must be an int >= 1, got {threshold!r}"
+            )
+        window_days = candidate.get("window_days", DEFAULT_ESCALATION_WINDOW_DAYS)
+        if isinstance(window_days, bool) or not isinstance(window_days, int) or window_days < 1:
+            raise EnforceValidationError(
+                f"escalation.window_days must be an int >= 1, got {window_days!r}"
+            )
+        out["escalation"] = {"threshold": threshold, "window_days": window_days}
 
     return out

@@ -652,5 +652,135 @@ class TestBlockOnMatchToolCompatibility(unittest.TestCase):
                 validate_enforce_block(self._base(template=tpl, tool="Edit"))
 
 
+class TestModeField(unittest.TestCase):
+    """v2.1.0 — `mode: warn | block` selects soft vs hard enforcement."""
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"gh pr create",
+            "hook": ".claude/hooks/auto/pr-rate.ts",
+            "generated_from": "memory/feedback_api_batching.md",
+            "template": "block-on-match-guard.ts.template",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_mode_default_block(self):
+        """Absent mode normalizes to 'block' — fully backward compatible."""
+        raw = self._base()
+        del raw["template"]
+        result = validate_enforce_block(raw)
+        self.assertEqual(result["mode"], "block")
+
+    def test_mode_block_explicit_passes(self):
+        result = validate_enforce_block(self._base(mode="block"))
+        self.assertEqual(result["mode"], "block")
+
+    def test_mode_warn_with_block_on_match_template_passes(self):
+        for lang in ["ts", "py", "sh"]:
+            tpl = f"block-on-match-guard.{lang}.template"
+            result = validate_enforce_block(self._base(mode="warn", template=tpl))
+            self.assertEqual(result["mode"], "warn", f"lang {lang}")
+
+    def test_mode_invalid_values_rejected(self):
+        """Only the lowercase enum is accepted — no bools, no synonyms."""
+        for bad in ["WARN", "Warn", "nudge", "soft", "", 1, True, None, ["warn"]]:
+            with self.assertRaises(EnforceValidationError, msg=f"mode {bad!r}"):
+                validate_enforce_block(self._base(mode=bad))
+
+    def test_mode_warn_rejects_specialized_templates(self):
+        """Soft tier is scoped to the block-on-match family in v2.1.0 —
+        specialized guards (cr-prepush, force-push, credential-leak) have
+        flow-specific block semantics a warn variant doesn't exist for."""
+        raw = self._base(mode="warn", template="cr-prepush-guard.ts.template")
+        raw["pattern"] = r"git push -u origin"
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(raw)
+        self.assertIn("block-on-match", str(ctx.exception))
+
+    def test_mode_warn_without_explicit_template_passes_schema(self):
+        """Dispatch-based template selection happens in the generator —
+        schema alone can't see it, so the warn×family check for the
+        no-explicit-template case lives there (GenerationError)."""
+        raw = self._base(mode="warn")
+        del raw["template"]
+        result = validate_enforce_block(raw)
+        self.assertEqual(result["mode"], "warn")
+
+
+class TestEscalationField(unittest.TestCase):
+    """v2.1.0 — `escalation:` declares the soft-to-hard promotion policy."""
+
+    def _base(self, **overrides):
+        raw = {
+            "tool": "Bash",
+            "pattern": r"gh pr create",
+            "hook": ".claude/hooks/auto/pr-rate.ts",
+            "generated_from": "memory/feedback_api_batching.md",
+            "template": "block-on-match-guard.ts.template",
+            "mode": "warn",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_escalation_absent_stays_absent(self):
+        """No escalation block → key absent in the normalized result."""
+        result = validate_enforce_block(self._base())
+        self.assertNotIn("escalation", result)
+
+    def test_escalation_minimal_applies_window_default(self):
+        result = validate_enforce_block(self._base(escalation={"threshold": 3}))
+        self.assertEqual(result["escalation"], {"threshold": 3, "window_days": 7})
+
+    def test_escalation_full_preserved(self):
+        result = validate_enforce_block(
+            self._base(escalation={"threshold": 5, "window_days": 14})
+        )
+        self.assertEqual(result["escalation"], {"threshold": 5, "window_days": 14})
+
+    def test_escalation_requires_mode_warn(self):
+        """Escalation on a block rule is meaningless — already hard."""
+        for mode_override in [{}, {"mode": "block"}]:
+            raw = self._base(escalation={"threshold": 3})
+            raw.pop("mode", None)
+            raw.update(mode_override)
+            with self.assertRaises(EnforceValidationError, msg=f"{mode_override}") as ctx:
+                validate_enforce_block(raw)
+            self.assertIn("mode", str(ctx.exception))
+
+    def test_escalation_must_be_dict(self):
+        for bad in ["3 in 7 days", 3, True, ["threshold", 3], None]:
+            with self.assertRaises(EnforceValidationError, msg=f"escalation {bad!r}"):
+                validate_enforce_block(self._base(escalation=bad))
+
+    def test_escalation_threshold_required(self):
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(self._base(escalation={"window_days": 7}))
+        self.assertIn("threshold", str(ctx.exception))
+
+    def test_escalation_threshold_strict_positive_int(self):
+        """Bools, zero, negatives, floats, and strings are rejected —
+        same strictness contract as freshness_secs."""
+        for bad in [True, False, 0, -1, 1.5, "3", None]:
+            with self.assertRaises(EnforceValidationError, msg=f"threshold {bad!r}"):
+                validate_enforce_block(self._base(escalation={"threshold": bad}))
+
+    def test_escalation_window_days_strict_positive_int(self):
+        for bad in [True, 0, -7, 2.5, "7", None]:
+            with self.assertRaises(EnforceValidationError, msg=f"window_days {bad!r}"):
+                validate_enforce_block(
+                    self._base(escalation={"threshold": 3, "window_days": bad})
+                )
+
+    def test_escalation_unknown_keys_rejected(self):
+        """Typos must not silently disable the policy (treshold → never fires)."""
+        with self.assertRaises(EnforceValidationError) as ctx:
+            validate_enforce_block(
+                self._base(escalation={"threshold": 3, "treshold": 5})
+            )
+        self.assertIn("treshold", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
