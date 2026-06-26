@@ -1,0 +1,6 @@
+# Mnemosyne runtime dependencies.
+#
+# The retriever core (lib/markdown_retriever.py, lib/reinforcement_ledger.py)
+# and hooks are pure stdlib. The enforce feature (lib/enforce/generator.py)
+# parses skill frontmatter with PyYAML's safe_load — the one third-party dep.
+PyYAML>=6.0
