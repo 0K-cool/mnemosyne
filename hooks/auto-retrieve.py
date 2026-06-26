@@ -385,7 +385,9 @@ def search_markdown(query: str, memory_dir: str, top_k: int = MAX_RESULTS) -> li
         from markdown_retriever import MarkdownRetriever
 
         retriever = MarkdownRetriever(memory_dir)
-        results = retriever.search(query, top_k=top_k)
+        # Real session retrieval is the reinforcement signal (v2.2 time-aware
+        # ranking): the memories surfaced here get their decay clock refreshed.
+        results = retriever.search(query, top_k=top_k, reinforce=True)
 
         formatted = []
         for r in results:

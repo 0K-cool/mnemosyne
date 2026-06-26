@@ -29,6 +29,9 @@ class TestDualModeDetection(unittest.TestCase):
         if state_dir.exists():
             for f in state_dir.glob("auto-retrieve-test-*.count"):
                 f.unlink(missing_ok=True)
+        # The hook reinforces (v2.2 time-aware ranking) — clear the fixtures
+        # ledger so retrieval scoring is deterministic across runs.
+        (FIXTURES_DIR / ".reinforcement.jsonl").unlink(missing_ok=True)
 
     def _run_hook(self, stdin_data: str, extra_env: dict | None = None) -> subprocess.CompletedProcess:
         """Run auto-retrieve.py as a subprocess with given stdin."""

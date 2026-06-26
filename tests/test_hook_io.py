@@ -25,6 +25,9 @@ class TestAutoRetrieveIO(unittest.TestCase):
         if state_dir.exists():
             for f in state_dir.glob("auto-retrieve-test-hookio-*.count"):
                 f.unlink(missing_ok=True)
+        # The hook reinforces (v2.2 time-aware ranking) — clear the fixtures
+        # ledger so retrieval scoring is deterministic across runs.
+        (FIXTURES_DIR / ".reinforcement.jsonl").unlink(missing_ok=True)
 
     def _run(self, stdin_data: str) -> dict:
         env = os.environ.copy()
