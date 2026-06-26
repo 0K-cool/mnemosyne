@@ -36,7 +36,7 @@ flat (`apply_decay=False`) search away.
 ## 3. Architecture
 
 ```
-search(query, top_k, apply_decay=True, reinforce=True)
+search(query, top_k, apply_decay=True, reinforce=False)
   │
   ├─ parse MEMORY.md index               (unchanged)
   ├─ BM25 pass 1 / pass 2 / fallback      (unchanged) → combined_score per result
@@ -124,13 +124,15 @@ workflow. Runs with `reinforce=False` (a staleness scan must not itself reinforc
 ## 4. Reinforcement Semantics
 
 - **What reinforces:** every source that appears in the **final returned
-  `top_k`** of a `search()` call with `reinforce=True` (the default).
+  `top_k`** of a `search()` call with `reinforce=True`.
 - Only the returned top_k count — not all intermediate BM25 candidates — so
   exploratory queries reinforce narrowly.
-- `reinforce=False` for: `staleness_candidates()`, any audit/forensic path, and
-  all tests (deterministic, no side effects on fixtures).
-- The auto-retrieve hook (`hooks/auto-retrieve.py`) uses the default — real
-  retrievals are the reinforcement signal.
+- **`reinforce` defaults to `False`** (no side effects for library/test/audit
+  callers). The auto-retrieve hook (`hooks/auto-retrieve.py`) explicitly opts in
+  with `reinforce=True`, so real session retrievals are the usage signal. This
+  keeps the "reinforce on returned top_k" mechanic while making the *write*
+  opt-in — existing tests pass untouched and no programmatic search silently
+  mutates state.
 
 ---
 

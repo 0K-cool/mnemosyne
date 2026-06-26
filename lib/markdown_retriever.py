@@ -15,9 +15,12 @@ Dependencies: Python stdlib only (re, pathlib, os, math, collections). No pip pa
 import math
 import os
 import re
+import time
 from collections import Counter
 from pathlib import Path
 from typing import List, Dict, Optional
+
+from reinforcement_ledger import ReinforcementLedger
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +40,57 @@ MAX_RETRIEVE_BYTES = 256 * 1024
 # truncation. 5000 is well above realistic memory index sizes and below
 # the point where the scoring loop becomes an attack surface.
 MAX_INDEX_ENTRIES = 5000
+
+
+# ---------------------------------------------------------------------------
+# Time-aware ranking — v2.2
+# ---------------------------------------------------------------------------
+# Decay is a RANKING signal only, never storage. The recency factor is bounded
+# [DECAY_FLOOR, 1.0] so it can only ever reduce a score, never inflate it above
+# the honest BM25 content score. Constants are intentionally gentle: a security
+# memory store values archival completeness, so old facts sink but never vanish.
+
+DECAY_FLOOR = 0.5            # worst-case multiplier for a fully-decayed memory
+BASE_HALF_LIFE_DAYS = 90     # half-life with zero reinforcement
+MAX_HALF_LIFE_DAYS = 365     # cap: heavily-used memories fade no slower than this
+
+# Query markers that force a flat, full-archive search (decay disabled). A
+# "when did we first…" or date-scoped query must not bias toward recent memories.
+_TEMPORAL_MARKERS = frozenset({
+    "when", "first", "earliest", "original", "originally", "history",
+    "timeline", "ever", "since", "previously", "initially",
+})
+_MONTH_NAMES = frozenset({
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+})
+_ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
+
+def _half_life_days(access_count: int) -> float:
+    """Half-life in days. Stretches with reinforcement (used often → fades
+    slower), capped at MAX_HALF_LIFE_DAYS."""
+    hl = BASE_HALF_LIFE_DAYS * (1 + math.log2(1 + max(0, access_count)))
+    return min(hl, MAX_HALF_LIFE_DAYS)
+
+
+def _decay_factor(age_days: float, access_count: int) -> float:
+    """Exponential recency factor in [DECAY_FLOOR, 1.0]."""
+    hl = _half_life_days(access_count)
+    factor = DECAY_FLOOR + (1.0 - DECAY_FLOOR) * (0.5 ** (max(0.0, age_days) / hl))
+    return max(DECAY_FLOOR, min(1.0, factor))
+
+
+def _is_temporal_query(query: str) -> bool:
+    """True when the query is temporal/forensic and decay should be disabled."""
+    if not query:
+        return False
+    low = query.lower()
+    if _ISO_DATE.search(low):
+        return True
+    words = set(_WORD_SPLIT.split(low))
+    words.discard("")
+    return bool(words & _TEMPORAL_MARKERS) or bool(words & _MONTH_NAMES)
 
 
 # Matches: - [Title](path.md) — description
@@ -144,6 +198,31 @@ class MarkdownRetriever:
     def __init__(self, memory_dir: str):
         self.memory_dir = Path(memory_dir)
         self.memory_index_path = self.memory_dir / "MEMORY.md"
+        self._ledger = ReinforcementLedger(memory_dir)
+
+    def _recency_factor(self, source: str, file_path: Optional[str],
+                        ledger_agg: Dict[str, Dict], now: float) -> float:
+        """Recency/usage multiplier in [DECAY_FLOOR, 1.0] for one result.
+
+        Reference timestamp precedence:
+          1. ledger last_reinforced (the memory has been used)
+          2. file mtime (datable but never reinforced)
+          3. neutral 1.0 (undatable bold entry — never penalized)
+        """
+        agg = ledger_agg.get(source)
+        if agg:
+            reference_ts = agg["last_reinforced"]
+            access_count = agg["access_count"]
+        else:
+            access_count = 0
+            if not file_path:
+                return 1.0
+            try:
+                reference_ts = os.path.getmtime(file_path)
+            except OSError:
+                return 1.0
+        age_days = (now - reference_ts) / 86400.0
+        return _decay_factor(age_days, access_count)
 
     def _safe_resolve_memory_path(self, rel_path: str):
         """Resolve MEMORY.md link target, rejecting anything that would
@@ -287,13 +366,39 @@ class MarkdownRetriever:
         """Return only entries that have readable file paths."""
         return [e for e in entries if e["file_path"] and os.path.exists(e["file_path"])]
 
-    def search(self, query: str, top_k: int = 5) -> List[Dict]:
+    def search(self, query: str, top_k: int = 5,
+               apply_decay: bool = True, reinforce: bool = False) -> List[Dict]:
         """Three-pass MEMORY.md-aware search with BM25, stemming, and content fallback.
+
+        Time-aware ranking (v2.2): unless disabled, each result's score is
+        multiplied by a recency/usage factor so fresh, frequently-pulled
+        memories rank above dormant ones. Ranking only — nothing is hidden or
+        deleted; the full archive is always one ``apply_decay=False`` search away.
+
+        Args:
+            query: search string.
+            top_k: max results to return.
+            apply_decay: when True (default), apply recency ranking — but
+                auto-disabled for temporal/forensic queries. Pass False for
+                audit/forensic retrieval that must search the archive flat.
+            reinforce: when True, append a reinforcement event for each returned
+                source. Defaults to False (no side effects); the auto-retrieve
+                hook opts in so real session retrievals are the usage signal.
+
         Returns: [{"source": str, "content": str, "score": float, "method": "markdown"}]
         """
         query_words = _tokenize(query)
         if not query_words:
             return []
+
+        now = time.time()
+        decay_on = apply_decay and not _is_temporal_query(query)
+        ledger_agg = self._ledger.aggregate() if decay_on else {}
+
+        def _adjust(base_score: float, source: str, file_path: Optional[str]) -> float:
+            if not decay_on:
+                return base_score
+            return base_score * self._recency_factor(source, file_path, ledger_agg, now)
 
         entries = self.parse_memory_index()
         if not entries:
@@ -361,22 +466,56 @@ class MarkdownRetriever:
             source = os.path.basename(file_path)
 
             if combined_score > 0.0:
+                adjusted = _adjust(min(combined_score, 1.0), source, file_path)
                 results.append({
                     "source": source,
                     "content": best_paragraph,
-                    "score": round(min(combined_score, 1.0), 4),
+                    "score": round(min(adjusted, 1.0), 4),
                     "method": "markdown",
                 })
 
         # Also include entries without files (bold-format, no file_path)
         for entry, index_score in candidates:
             if not entry["file_path"] and index_score > 0.0:
+                adjusted = _adjust(min(index_score * 0.3, 1.0), entry["title"], None)
                 results.append({
                     "source": entry["title"],
                     "content": entry["description"],
-                    "score": round(min(index_score * 0.3, 1.0), 4),
+                    "score": round(min(adjusted, 1.0), 4),
                     "method": "markdown",
                 })
 
         results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:top_k]
+        top = results[:top_k]
+
+        # Reinforce the returned set (opt-in; the auto-retrieve hook passes True).
+        if reinforce and top:
+            self._ledger.record([r["source"] for r in top])
+
+        return top
+
+    def staleness_candidates(self, threshold_factor: float = DECAY_FLOOR + 0.02,
+                             max_access_count: int = 1) -> List[Dict]:
+        """Memories whose recency factor sits at/under ``threshold_factor`` and
+        whose ``access_count <= max_access_count``. Detect-and-report only —
+        never reinforces, never rewrites. Feeds a future staleness-check workflow.
+        """
+        now = time.time()
+        ledger_agg = self._ledger.aggregate()
+        out: List[Dict] = []
+        for entry in self.parse_memory_index():
+            file_path = entry["file_path"]
+            source = os.path.basename(file_path) if file_path else entry["title"]
+            agg = ledger_agg.get(source)
+            access_count = agg["access_count"] if agg else 0
+            if access_count > max_access_count:
+                continue
+            factor = self._recency_factor(source, file_path, ledger_agg, now)
+            if factor <= threshold_factor:
+                out.append({
+                    "source": source,
+                    "last_reinforced": agg["last_reinforced"] if agg else None,
+                    "factor": round(factor, 4),
+                    "access_count": access_count,
+                })
+        return out

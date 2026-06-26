@@ -7,3 +7,6 @@ __pycache__/
 dist/
 build/
 .DS_Store
+
+# v2.2 time-aware ranking — per-memory-dir runtime usage ledger (never committed)
+.reinforcement.jsonl
