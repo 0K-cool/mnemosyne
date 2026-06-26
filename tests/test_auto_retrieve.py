@@ -6,6 +6,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,16 +31,25 @@ class TestDetectRag(unittest.TestCase):
     detection logic still gets exercised in CI environments.
     """
 
+    @contextmanager
     def _patch_allowlist(self, extra_prefix: Path):
-        """Add extra_prefix to _RAG_ALLOWED_PREFIXES for the duration of
-        a single test. Returns the patcher so the test can call .start()/
-        .stop() — preferred pattern for compatibility with unittest.
+        """Add extra_prefix to _RAG_ALLOWED_PREFIXES *and* clear the denylist
+        for the duration of a single test.
+
+        Why clear the denylist: tempfile.TemporaryDirectory() lands in
+        /var/folders on macOS (not denied) but /tmp on Linux/CI — and /tmp is
+        in _RAG_DENIED_PREFIXES, which is checked first and would reject the
+        tmpdir regardless of the allowlist. These tests exercise the positive
+        allowlist path; the denylist has its own coverage in
+        test_auto_retrieve_security.py, so neutralizing it here keeps the suite
+        portable without losing denylist coverage.
         """
-        return patch.object(
+        with patch.object(
             auto_retrieve,
             "_RAG_ALLOWED_PREFIXES",
             auto_retrieve._RAG_ALLOWED_PREFIXES + (extra_prefix,),
-        )
+        ), patch.object(auto_retrieve, "_RAG_DENIED_PREFIXES", ()):
+            yield
 
     def test_returns_true_when_env_enabled_and_venv_exists(self):
         """RAG detected when MNEMOSYNE_RAG_ENABLED=true and .venv exists."""
