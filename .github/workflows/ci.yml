@@ -1,0 +1,76 @@
+# CI for Mnemosyne — public repo, zero-dependency (stdlib Python + one Bun
+# adversarial test). Mirrors `make test`.
+#
+# Why not the generic ZerØK public-repo-ci template: that template auto-detects
+# the runner from a lockfile (bun.lock) or a Python descriptor
+# (pyproject.toml / requirements.txt / setup.py). Mnemosyne ships none of those
+# by design, so both branches would no-op and the "fail when neither fires"
+# guard would trip. This workflow invokes the runners explicitly instead.
+#
+# Supply chain: GitHub Actions are pinned to commit SHAs (not mutable tags).
+# Tool versions (bun, python) are pinned in `with:` and must be bumped by hand —
+# Dependabot's github-actions ecosystem updates `uses:` SHAs but NOT `with:`
+# values. No repository secrets are read here; `pull_request` (not
+# `pull_request_target`) + `contents: read` + `persist-credentials: false` keep
+# fork PRs unable to exfiltrate or write.
+
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  static-analysis:
+    name: Semgrep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
+        with:
+          config: |
+            p/default
+            p/security-audit
+            p/secrets
+
+  tests:
+    name: Tests (unittest + bun)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: '3.12'
+
+      - name: Python unit tests (stdlib only — no install)
+        run: |
+          set -eo pipefail
+          python3 -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+        with:
+          bun-version: '1.2.8'
+
+      - name: Bun adversarial test
+        run: |
+          set -eo pipefail
+          bun test ./tests/test_memory_validation.test.ts
