@@ -186,7 +186,10 @@ class _BM25:
     """Minimal BM25 scorer. Zero dependencies."""
 
     k1 = 1.5
-    b = 0.5  # lower b for short docs (markdown files are typically short)
+    # Low b for short docs: memory notes are uniformly short by nature, so
+    # length-normalization (which penalizes longer-than-average docs) mostly
+    # adds noise here. Elastic's short-doc guidance is b≈0.2–0.4.
+    b = 0.3
 
     def __init__(self, corpus: List[List[str]]):
         self.N = len(corpus) if corpus else 1
@@ -479,6 +482,11 @@ class MarkdownRetriever:
         if content_corpus:
             content_bm25 = _BM25(content_corpus)
 
+        # Rank on RAW (uncapped) scores. BM25 is unbounded by design; the old
+        # min(score, 1.0) cap flattened every strong multi-term match to exactly
+        # 1.0, destroying discrimination (on a high-distractor store ~91% of
+        # top-k tied at 1.0). The [0,1] display contract is restored by
+        # max-normalizing AFTER ranking — never used for ordering.
         results = []
         for i, (entry, index_score, content, file_path) in enumerate(content_entries):
             content_score = content_bm25.score(query_words, content_corpus[i])
@@ -488,27 +496,33 @@ class MarkdownRetriever:
             source = os.path.basename(file_path)
 
             if combined_score > 0.0:
-                adjusted = _adjust(min(combined_score, 1.0), source, file_path)
                 results.append({
                     "source": source,
                     "content": best_paragraph,
-                    "score": round(min(adjusted, 1.0), 4),
                     "method": "markdown",
+                    "_raw": _adjust(combined_score, source, file_path),
                 })
 
         # Also include entries without files (bold-format, no file_path)
         for entry, index_score in candidates:
             if not entry["file_path"] and index_score > 0.0:
-                adjusted = _adjust(min(index_score * 0.3, 1.0), entry["title"], None)
                 results.append({
                     "source": entry["title"],
                     "content": entry["description"],
-                    "score": round(min(adjusted, 1.0), 4),
                     "method": "markdown",
+                    "_raw": _adjust(index_score * 0.3, entry["title"], None),
                 })
 
-        results.sort(key=lambda x: x["score"], reverse=True)
+        results.sort(key=lambda x: x["_raw"], reverse=True)
         top = results[:top_k]
+
+        # Max-normalize the returned set into [0,1] for the display score
+        # contract (top result = 1.0). Sorted desc, so top[0] is the global max.
+        if top:
+            max_raw = top[0]["_raw"]
+            for r in top:
+                r["score"] = round(r["_raw"] / max_raw, 4) if max_raw > 0 else 0.0
+                del r["_raw"]
 
         # Reinforce the returned set (opt-in; the auto-retrieve hook passes True).
         if reinforce and top:
