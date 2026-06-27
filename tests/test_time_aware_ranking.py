@@ -16,40 +16,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from markdown_retriever import (  # noqa: E402
     MarkdownRetriever,
-    DECAY_FLOOR,
     BASE_HALF_LIFE_DAYS,
     MAX_HALF_LIFE_DAYS,
-    _decay_factor,
     _half_life_days,
     _is_temporal_query,
 )
 from reinforcement_ledger import ReinforcementLedger  # noqa: E402
 
+# Recency-signal math (additive model) lives in test_additive_recency.py.
+# This file keeps the half-life, temporal-detection, search-integration,
+# reinforcement, and staleness coverage.
 
-# ---------------------------------------------------------------------------
-# Pure decay math
-# ---------------------------------------------------------------------------
 
-class TestDecayMath(unittest.TestCase):
-    def test_fresh_factor_is_one(self):
-        self.assertAlmostEqual(_decay_factor(0, 0), 1.0, places=4)
-
-    def test_ancient_unreinforced_near_floor(self):
-        f = _decay_factor(3650, 0)  # 10 years, never reinforced
-        self.assertGreaterEqual(f, DECAY_FLOOR)
-        self.assertLess(f, DECAY_FLOOR + 0.01)
-
-    def test_factor_always_within_bounds(self):
-        for age in [0, 1, 30, 90, 365, 3650, 100000]:
-            for ac in [0, 1, 10, 1000, 10**6]:
-                f = _decay_factor(age, ac)
-                self.assertGreaterEqual(f, DECAY_FLOOR)
-                self.assertLessEqual(f, 1.0)
-
-    def test_reinforcement_slows_decay(self):
-        # Same age, more reinforcement → higher (less-decayed) factor.
-        self.assertGreater(_decay_factor(180, 50), _decay_factor(180, 0))
-
+class TestHalfLife(unittest.TestCase):
     def test_half_life_increases_with_access(self):
         self.assertGreater(_half_life_days(10), _half_life_days(0))
 
@@ -139,11 +118,14 @@ class TestTimeAwareSearch(unittest.TestCase):
         s = self._scores(apply_decay=False, reinforce=False)
         self.assertAlmostEqual(s["fresh.md"], s["stale.md"], places=4)
 
-    def test_decay_penalizes_stale_not_fresh(self):
+    def test_recency_boosts_fresh_above_stale(self):
+        # Additive model: fresh earns a recency bonus, so after display
+        # normalization its score is 1.0 and the (unboosted) stale entry sits
+        # relatively lower — without stale's raw content score being penalized.
         decayed = self._scores(apply_decay=True, reinforce=False)
         flat = self._scores(apply_decay=False, reinforce=False)
+        self.assertGreater(decayed["fresh.md"], decayed["stale.md"])
         self.assertLess(decayed["stale.md"], flat["stale.md"])
-        self.assertAlmostEqual(decayed["fresh.md"], flat["fresh.md"], places=3)
 
     def test_temporal_marker_auto_disables_decay(self):
         # "history" marks the query temporal → decay must be auto-disabled,

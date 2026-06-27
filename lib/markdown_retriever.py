@@ -43,16 +43,23 @@ MAX_INDEX_ENTRIES = 5000
 
 
 # ---------------------------------------------------------------------------
-# Time-aware ranking — v2.2
+# Time-aware ranking — v2.2.1 (additive-λ tie-breaker)
 # ---------------------------------------------------------------------------
-# Decay is a RANKING signal only, never storage. The recency factor is bounded
-# [DECAY_FLOOR, 1.0] so it can only ever reduce a score, never inflate it above
-# the honest BM25 content score. Constants are intentionally gentle: a security
-# memory store values archival completeness, so old facts sink but never vanish.
+# Recency is a RANKING signal only, never storage. It is added as a small BONUS
+# to the normalized content score — NOT a multiplier. A fresh memory gets up to
+# +RECENCY_WEIGHT; an old one gets ~+0. Nothing is ever penalized, so a strongly-
+# matching old memory is never demoted below a weaker-but-recent one (the failure
+# of the earlier multiplicative [0.5,1.0] decay). Recency only reorders near-ties.
+#
+#   final = content_norm + RECENCY_WEIGHT * recency_signal
+#   recency_signal = 0.5 ** (age_days / half_life)   ∈ (0, 1],  fresh→1, old→0
+#
+# This matches the "boost relevant, never penalize old" pattern used by mature
+# systems (Elasticsearch function_score boost_mode:sum; MemPalace temporal boost).
 
-DECAY_FLOOR = 0.5            # worst-case multiplier for a fully-decayed memory
-BASE_HALF_LIFE_DAYS = 90     # half-life with zero reinforcement
-MAX_HALF_LIFE_DAYS = 365     # cap: heavily-used memories fade no slower than this
+RECENCY_WEIGHT = 0.10        # λ — max recency bonus; keep small so it only breaks ties
+BASE_HALF_LIFE_DAYS = 90     # recency half-life with zero reinforcement
+MAX_HALF_LIFE_DAYS = 365     # cap: heavily-used memories' bonus fades no faster than this
 
 # Query markers that force a flat, full-archive search (decay disabled). Any
 # temporal / forensic / duration / ordering / recency question must not bias
@@ -94,11 +101,12 @@ def _half_life_days(access_count: int) -> float:
     return min(hl, MAX_HALF_LIFE_DAYS)
 
 
-def _decay_factor(age_days: float, access_count: int) -> float:
-    """Exponential recency factor in [DECAY_FLOOR, 1.0]."""
+def _recency_signal(age_days: float, access_count: int) -> float:
+    """Recency BONUS signal in [0, 1] — fresh→1, old→0. Added (scaled by
+    RECENCY_WEIGHT) to the normalized content score; never multiplied, so an old
+    memory simply earns ~0 bonus rather than being penalized."""
     hl = _half_life_days(access_count)
-    factor = DECAY_FLOOR + (1.0 - DECAY_FLOOR) * (0.5 ** (max(0.0, age_days) / hl))
-    return max(DECAY_FLOOR, min(1.0, factor))
+    return max(0.0, min(1.0, 0.5 ** (max(0.0, age_days) / hl)))
 
 
 def _is_temporal_query(query: str) -> bool:
@@ -225,14 +233,15 @@ class MarkdownRetriever:
         self.memory_index_path = self.memory_dir / "MEMORY.md"
         self._ledger = ReinforcementLedger(memory_dir)
 
-    def _recency_factor(self, source: str, file_path: Optional[str],
-                        ledger_agg: Dict[str, Dict], now: float) -> float:
-        """Recency/usage multiplier in [DECAY_FLOOR, 1.0] for one result.
+    def _recency_signal_for(self, source: str, file_path: Optional[str],
+                            ledger_agg: Dict[str, Dict], now: float) -> float:
+        """Recency BONUS signal in [0, 1] for one result (fresh→1, old→0).
 
         Reference timestamp precedence:
           1. ledger last_reinforced (the memory has been used)
           2. file mtime (datable but never reinforced)
-          3. neutral 1.0 (undatable bold entry — never penalized)
+          3. 0.0 (undatable bold entry — earns no freshness bonus, but is never
+             penalized either; it simply competes on content score)
         """
         agg = ledger_agg.get(source)
         if agg:
@@ -241,13 +250,13 @@ class MarkdownRetriever:
         else:
             access_count = 0
             if not file_path:
-                return 1.0
+                return 0.0
             try:
                 reference_ts = os.path.getmtime(file_path)
             except OSError:
-                return 1.0
+                return 0.0
         age_days = (now - reference_ts) / 86400.0
-        return _decay_factor(age_days, access_count)
+        return _recency_signal(age_days, access_count)
 
     def _safe_resolve_memory_path(self, rel_path: str):
         """Resolve MEMORY.md link target, rejecting anything that would
@@ -420,10 +429,10 @@ class MarkdownRetriever:
         decay_on = apply_decay and not _is_temporal_query(query)
         ledger_agg = self._ledger.aggregate() if decay_on else {}
 
-        def _adjust(base_score: float, source: str, file_path: Optional[str]) -> float:
+        def _recency(source: str, file_path: Optional[str]) -> float:
             if not decay_on:
-                return base_score
-            return base_score * self._recency_factor(source, file_path, ledger_agg, now)
+                return 0.0
+            return self._recency_signal_for(source, file_path, ledger_agg, now)
 
         entries = self.parse_memory_index()
         if not entries:
@@ -482,47 +491,57 @@ class MarkdownRetriever:
         if content_corpus:
             content_bm25 = _BM25(content_corpus)
 
-        # Rank on RAW (uncapped) scores. BM25 is unbounded by design; the old
-        # min(score, 1.0) cap flattened every strong multi-term match to exactly
-        # 1.0, destroying discrimination (on a high-distractor store ~91% of
-        # top-k tied at 1.0). The [0,1] display contract is restored by
-        # max-normalizing AFTER ranking — never used for ordering.
-        results = []
+        # Collect raw (uncapped) content scores + a recency signal per result.
+        # BM25 is unbounded by design; clamping to 1.0 flattened strong matches
+        # into a tie (~91% of top-k on a high-distractor store). We rank on a
+        # blend of NORMALIZED content + an additive recency BONUS, then max-
+        # normalize the display score. Two passes: collect raw, then blend once
+        # the per-query max content score is known.
+        scored_results = []  # (content_raw, recency_signal, result_dict)
         for i, (entry, index_score, content, file_path) in enumerate(content_entries):
             content_score = content_bm25.score(query_words, content_corpus[i])
             # Combine: content matters more than index description
             combined_score = 0.3 * index_score + 0.7 * content_score
-            best_paragraph = self._extract_best_paragraph(query_words, content)
-            source = os.path.basename(file_path)
-
             if combined_score > 0.0:
-                results.append({
-                    "source": source,
-                    "content": best_paragraph,
-                    "method": "markdown",
-                    "_raw": _adjust(combined_score, source, file_path),
-                })
+                source = os.path.basename(file_path)
+                scored_results.append((
+                    combined_score,
+                    _recency(source, file_path),
+                    {"source": source,
+                     "content": self._extract_best_paragraph(query_words, content),
+                     "method": "markdown"},
+                ))
 
         # Also include entries without files (bold-format, no file_path)
         for entry, index_score in candidates:
             if not entry["file_path"] and index_score > 0.0:
-                results.append({
-                    "source": entry["title"],
-                    "content": entry["description"],
-                    "method": "markdown",
-                    "_raw": _adjust(index_score * 0.3, entry["title"], None),
-                })
+                scored_results.append((
+                    index_score * 0.3,
+                    _recency(entry["title"], None),
+                    {"source": entry["title"],
+                     "content": entry["description"],
+                     "method": "markdown"},
+                ))
 
-        results.sort(key=lambda x: x["_raw"], reverse=True)
-        top = results[:top_k]
+        # Additive-λ blend: final = content_norm + RECENCY_WEIGHT * recency.
+        # content_norm ∈ (0,1] keeps content dominant; the bounded bonus only
+        # reorders near-ties and can never demote a strong match below a weaker
+        # but fresher one.
+        max_content = max((c for c, _, _ in scored_results), default=0.0)
+        ranked = []
+        for content_raw, recency, r in scored_results:
+            content_norm = content_raw / max_content if max_content > 0 else 0.0
+            ranked.append((content_norm + RECENCY_WEIGHT * recency, r))
+        ranked.sort(key=lambda x: x[0], reverse=True)
+        top_ranked = ranked[:top_k]
 
-        # Max-normalize the returned set into [0,1] for the display score
-        # contract (top result = 1.0). Sorted desc, so top[0] is the global max.
-        if top:
-            max_raw = top[0]["_raw"]
-            for r in top:
-                r["score"] = round(r["_raw"] / max_raw, 4) if max_raw > 0 else 0.0
-                del r["_raw"]
+        # Max-normalize the final blended score into [0,1] for the display
+        # contract (top result = 1.0). Sorted desc, so the first is the max.
+        top = []
+        max_final = top_ranked[0][0] if top_ranked else 0.0
+        for final, r in top_ranked:
+            r["score"] = round(final / max_final, 4) if max_final > 0 else 0.0
+            top.append(r)
 
         # Reinforce the returned set (opt-in; the auto-retrieve hook passes True).
         if reinforce and top:
@@ -530,28 +549,32 @@ class MarkdownRetriever:
 
         return top
 
-    def staleness_candidates(self, threshold_factor: float = DECAY_FLOOR + 0.02,
+    def staleness_candidates(self, threshold_signal: float = 0.05,
                              max_access_count: int = 1) -> List[Dict]:
-        """Memories whose recency factor sits at/under ``threshold_factor`` and
-        whose ``access_count <= max_access_count``. Detect-and-report only —
-        never reinforces, never rewrites. Feeds a future staleness-check workflow.
+        """Datable memories whose recency signal sits at/under ``threshold_signal``
+        (near 0 → old) and whose ``access_count <= max_access_count``. Detect-and-
+        report only — never reinforces, never rewrites. Feeds a future
+        staleness-check workflow. Undatable bold entries (signal 0 by default)
+        are excluded — absence of a date is not evidence of staleness.
         """
         now = time.time()
         ledger_agg = self._ledger.aggregate()
         out: List[Dict] = []
         for entry in self.parse_memory_index():
             file_path = entry["file_path"]
-            source = os.path.basename(file_path) if file_path else entry["title"]
+            if not file_path:
+                continue  # can't date a bold entry → not a staleness signal
+            source = os.path.basename(file_path)
             agg = ledger_agg.get(source)
             access_count = agg["access_count"] if agg else 0
             if access_count > max_access_count:
                 continue
-            factor = self._recency_factor(source, file_path, ledger_agg, now)
-            if factor <= threshold_factor:
+            signal = self._recency_signal_for(source, file_path, ledger_agg, now)
+            if signal <= threshold_signal:
                 out.append({
                     "source": source,
                     "last_reinforced": agg["last_reinforced"] if agg else None,
-                    "factor": round(factor, 4),
+                    "recency_signal": round(signal, 4),
                     "access_count": access_count,
                 })
         return out
