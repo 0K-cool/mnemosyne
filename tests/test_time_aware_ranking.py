@@ -71,8 +71,29 @@ class TestTemporalDetection(unittest.TestCase):
                   "originally planned", "2026-06-07 incident"]:
             self.assertTrue(_is_temporal_query(q), f"should be temporal: {q}")
 
+    def test_duration_ordering_recency_phrasings(self):
+        # Real LongMemEval temporal-reasoning phrasings the original detector
+        # missed (54% false-negative rate). These must disable decay.
+        for q in [
+            "How many days had passed between the two events?",
+            "How many weeks ago did I attend the sale?",
+            "How many months ago did I book the Airbnb?",
+            "How long did it take to find a house I loved?",
+            "How long have I been working before my current job?",
+            "Which streaming service did I start using most recently?",
+            "Which pair of shoes did I clean last month?",
+            "What time do I wake up on Tuesdays and Thursdays?",
+            "What is the order of the three events I described?",
+            "How many days before the festival did I participate?",
+            "How many days did it take after starting?",
+        ]:
+            self.assertTrue(_is_temporal_query(q), f"should be temporal: {q}")
+
     def test_plain_query_not_temporal(self):
-        for q in ["alpha widget", "surf spots puerto rico", "athena bugs"]:
+        # Genuinely non-temporal queries must NOT be flagged (else decay no-ops).
+        for q in ["alpha widget", "surf spots puerto rico", "athena bugs",
+                  "what is my favorite restaurant", "which laptop did I buy",
+                  "my preferred coffee order"]:
             self.assertFalse(_is_temporal_query(q), f"should NOT be temporal: {q}")
 
 

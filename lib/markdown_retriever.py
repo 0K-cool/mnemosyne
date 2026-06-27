@@ -54,17 +54,37 @@ DECAY_FLOOR = 0.5            # worst-case multiplier for a fully-decayed memory
 BASE_HALF_LIFE_DAYS = 90     # half-life with zero reinforcement
 MAX_HALF_LIFE_DAYS = 365     # cap: heavily-used memories fade no slower than this
 
-# Query markers that force a flat, full-archive search (decay disabled). A
-# "when did we first…" or date-scoped query must not bias toward recent memories.
+# Query markers that force a flat, full-archive search (decay disabled). Any
+# temporal / forensic / duration / ordering / recency question must not bias
+# toward recent memories — its answer may live in an old memory.
+#
+# Bias note: a false POSITIVE here only forgoes decay's (small) upside on one
+# query; a false NEGATIVE lets decay sink an old-but-correct answer and costs
+# archival recall. So this set is deliberately generous.
 _TEMPORAL_MARKERS = frozenset({
-    "when", "first", "earliest", "original", "originally", "history",
-    "timeline", "ever", "since", "previously", "initially",
+    "when", "first", "earliest", "latest", "recently", "recent", "lately",
+    "ago", "before", "after", "between", "during", "since", "until",
+    "prior", "previously", "initially", "originally", "history", "timeline",
+    "ever", "earlier", "later", "duration", "elapsed", "passed",
+    "oldest", "newest", "longest", "chronological",
 })
 _MONTH_NAMES = frozenset({
     "january", "february", "march", "april", "may", "june", "july",
     "august", "september", "october", "november", "december",
 })
+_DAYS_OF_WEEK = frozenset({
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays", "sundays",
+    "weekday", "weekdays", "weekend", "weekends",
+})
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+# Phrase-level markers for cases where the trigger words are too common to put
+# in the bare-word set (e.g. "order", "time", "last", "this").
+_TEMPORAL_PHRASES = re.compile(
+    r"how long|how many (day|week|month|year|hour|minute|time)|"
+    r"\b(last|this|past|next) (week|month|year|night|time|day|spring|summer|fall|winter)\b|"
+    r"most recent|what time|order of|in what order|sequence of"
+)
 
 
 def _half_life_days(access_count: int) -> float:
@@ -86,11 +106,13 @@ def _is_temporal_query(query: str) -> bool:
     if not query:
         return False
     low = query.lower()
-    if _ISO_DATE.search(low):
+    if _ISO_DATE.search(low) or _TEMPORAL_PHRASES.search(low):
         return True
     words = set(_WORD_SPLIT.split(low))
     words.discard("")
-    return bool(words & _TEMPORAL_MARKERS) or bool(words & _MONTH_NAMES)
+    return (bool(words & _TEMPORAL_MARKERS)
+            or bool(words & _MONTH_NAMES)
+            or bool(words & _DAYS_OF_WEEK))
 
 
 # Matches: - [Title](path.md) — description
