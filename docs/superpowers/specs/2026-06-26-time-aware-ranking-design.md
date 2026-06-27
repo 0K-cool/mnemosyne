@@ -1,8 +1,22 @@
 # Mnemosyne v2.2 — Time-Aware Retrieval Ranking
 
 **Date:** 2026-06-26
-**Status:** Design approved — pre-implementation
+**Status:** SHIPPED in v2.2.0 (2026-06-27) — but the *recency model below was
+superseded during implementation*. See the note before relying on this doc.
 **Target:** `lib/markdown_retriever.py` + new `lib/reinforcement_ledger.py` (markdown tier)
+
+> **⚠️ Superseded recency model.** This spec describes a **multiplicative**
+> decay (`score × factor`, factor ∈ [0.5,1.0]). Benchmarking showed that
+> *penalizing* old items multiplicatively craters archival recall on a
+> high-distractor store (−15 R@5). The shipped v2.2.0 model is **additive-λ**
+> instead: `final = content_norm + λ·recency` (λ=0.10), where recency is a
+> `[0,1]` *bonus* (fresh→1, old→0) — never a penalty, so a strong old match is
+> never demoted below a weaker recent one. A prerequisite fix removed a BM25
+> score-cap that was saturating ~91% of top-k at 1.0. The sidecar ledger,
+> query-aware opt-out, and staleness-feed sections below are accurate as
+> shipped; only the **decay-scoring math (§3.2)** is replaced by the additive
+> blend. See `CHANGELOG.md` [2.2.0] and the benchmark findings in PAI
+> `output/research/longmemeval/results/2026-06-26-v2.2-decay-benchmark-findings.md`.
 
 ---
 
