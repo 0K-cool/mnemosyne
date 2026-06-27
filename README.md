@@ -9,8 +9,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Claude_Code-orange.svg" alt="Claude Code" />
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/version-2.1.1-brightgreen.svg" alt="Version 2.1.1" />
-  <img src="https://img.shields.io/badge/tests-469%20passing-brightgreen.svg" alt="469 tests passing" />
+  <img src="https://img.shields.io/badge/version-2.2.0-brightgreen.svg" alt="Version 2.2.0" />
+  <img src="https://img.shields.io/badge/tests-510%20passing-brightgreen.svg" alt="510 tests passing" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
   <img src="https://img.shields.io/badge/v2-memory--driven_enforcement-9d4edd.svg" alt="v2 memory-driven enforcement" />
@@ -53,6 +53,7 @@ That's it. Zero dependencies. Works immediately.
 
 - **Auto-save** — memories saved on session end, even if the AI forgets
 - **Auto-retrieve** — relevant memories injected into every prompt
+- **Time-aware ranking (v2.2.0)** — fresh, frequently-used memories rank higher. A small additive recency bonus breaks ties without ever burying an older relevant memory (so changing facts surface their *current* value), and it auto-disables for "when did I…" temporal queries. Ships alongside a BM25 scoring fix worth **+24.9 Recall@5** on a high-distractor benchmark. ([Benchmark](#benchmark))
 - **Memory-driven enforcement (v2.0.0)** — memory entries with an `enforce:` block generate Claude Code hooks that **hard-block at the tool boundary**. The agent cannot rationalise its way around the rule because the runtime intercepts before the tool runs. ([How](#memory-driven-enforcement-v2))
 - **Self-improvement** — `/gotcha` captures mistakes at the source
 - **Session mining** — `/mine-session` extracts learnings from past conversations
