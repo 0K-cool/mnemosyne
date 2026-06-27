@@ -1,6 +1,6 @@
 {
   "name": "mnemosyne",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "Structured AI memory for professionals. 100% local. Zero cloud. Security-first. v2 adds memory-driven runtime enforcement: memory entries with an `enforce:` block generate Claude Code hooks that hard-block at the tool boundary.",
   "author": "ZerOK Labs",
   "repository": "https://github.com/0K-cool/mnemosyne",

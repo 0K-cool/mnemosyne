@@ -4,11 +4,51 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.2.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.2.0
 [2.1.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.1.1
 [2.1.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.1.0
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.2.0] — 2026-06-27
+
+**Time-aware retrieval ranking — fresh, frequently-used memories rank
+higher, with zero cost to archival recall.** The markdown retriever now
+weights results by recency and usage, and a benchmark-driven fix to BM25
+scoring substantially improves baseline retrieval quality on its own.
+
+### Added
+- **Time-aware ranking (markdown tier).** Each result's score gets a small
+  additive recency bonus — `final = content_norm + λ·recency` (λ=0.10),
+  where recency is a `[0,1]` signal (fresh→1, old→0). It is a *bonus*, never
+  a penalty, so a strongly-matching old memory is never demoted below a
+  weaker but fresher one. Recency only reorders genuine near-ties. Disabled
+  automatically for temporal/forensic queries ("when did I…", "how many days
+  ago…", dates) and via `apply_decay=False` for flat archival search.
+- **Reinforcement ledger** (`.reinforcement.jsonl`, append-only): memories
+  surfaced by the auto-retrieve hook get their recency clock refreshed, so
+  frequently-used notes stay "fresh" longer (half-life stretches with use).
+  Ranking-only — memory files are never modified.
+- **`staleness_candidates()`**: reports dormant, never-reinforced memories
+  (detect-only; feeds a future staleness-check workflow).
+
+### Changed
+- **BM25 ranking no longer caps scores at 1.0.** BM25 is unbounded by design;
+  the cap flattened strong multi-term matches into a tie (on a high-distractor
+  store ~91% of top-k tied at exactly 1.0, collapsing ranking to insertion
+  order). Ranking now uses raw scores; the `[0,1]` display score is
+  max-normalized after ranking. Also lowered BM25 `b` 0.5→0.3 (memory notes
+  are uniformly short). **Recall@5 on a 53-distractor benchmark: +24.9 points.**
+- **Temporal-query detection broadened** — duration/ordering/recency phrasings
+  ("how many days ago", "before X", "last month", "most recently", "order of")
+  now correctly disable recency ranking (false-negative rate 54%→~1%).
+
+### Notes
+- Evidence (LongMemEval decay A/B): recency is archival-recall-neutral
+  (Recall@5 Δ +0.00 oracle / −0.21 on the hard set) and adds a large
+  changing-fact upside (it ranks the *current* value above a stale one in
+  100% of controlled trials vs 10% without). Recency is on by default.
 
 ## [2.1.1] — 2026-06-07
 
