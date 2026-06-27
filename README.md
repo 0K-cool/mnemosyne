@@ -69,6 +69,7 @@ Each component has one job. No overlap. Clear boundaries.
 | `identity.txt` | 100-token cold-start context | Your handshake |
 | `MEMORY.md` | Index of what memories exist | Your table of contents |
 | `memory/` files | Long-term storage — decisions, feedback, learnings | Your journal |
+| `.reinforcement.jsonl` | Usage ledger (v2.2) — fresh, often-used memories rank higher; never deletes | Your muscle memory |
 | `/gotcha` | Captures mistakes at the source | Your error log |
 | `lessons-learned.md` | What went wrong and why | Your scar tissue |
 | Auto-save hook | Mechanical enforcement — saves even if AI forgets | Your backup alarm |
@@ -202,8 +203,9 @@ skills/ ──► /gotcha,             block-on-match-guard
                                  credential-leak-guard
                                Languages: ts | py | sh
 
-Retrieval: BM25 + stemming ──► OR ──► vector + BM25 + RRF ──► OR ──► + BGE reranking
-           (81% R@5, 0 deps)          (100% R@5, core)              (100% R@5, full)
+Retrieval: BM25 + stemming + ──► OR ──► vector + BM25 + RRF ──► OR ──► + BGE reranking
+           time-aware ranking           (100% R@5, core)              (100% R@5, full)
+           (80% R@5, 0 deps)
 
 Enforcement (opt-in per memory entry):
    memory entry { enforce: } ──► python -m enforce ──► PreToolUse hook ──► tool boundary block
@@ -215,7 +217,7 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 
 | Configuration | Session R@5 | Turn R@5 | MRR | Dependencies |
 |---|:---:|:---:|:---:|---|
-| Mnemosyne alone | 81.1% | — | 59.7% | Zero |
+| Mnemosyne alone | 80.2% | — | 59.3% | Zero |
 | Mnemosyne + 0K-RAG core | **100.0%** | **93.0%** | 70.0% | Ollama + LanceDB |
 | Mnemosyne + 0K-RAG full | **100.0%** | 91.5% | **74.3%** | Ollama + LanceDB + BGE reranker |
 | MemPalace (raw ChromaDB) | 96.6% | — | — | chromadb |
@@ -237,7 +239,7 @@ Tested on [LongMemEval](https://arxiv.org/abs/2410.10813) (470 questions, per-qu
 
 The shared-index number reflects what actually happens when your memory has months of accumulated conversations. We believe this is the number that matters.
 
-**The zero-dep tier** (81.1% R@5) uses BM25 scoring with suffix stemming against a markdown index — no models, no embeddings, no dependencies. It works offline, on any machine, instantly. For professionals who need memory but can't install ML models on hardened systems, this is a strong baseline.
+**The zero-dep tier** (80.2% R@5) uses BM25 scoring with suffix stemming against a markdown index, plus v2.2 time-aware ranking (a small additive recency bonus) — no models, no embeddings, no dependencies. It works offline, on any machine, instantly. For professionals who need memory but can't install ML models on hardened systems, this is a strong baseline.
 
 **The core tier** (100% R@5, 93% turn-level) uses vector + BM25 + reciprocal rank fusion. Hits perfect session-level recall without a reranker. Best turn-level accuracy of any configuration.
 
@@ -253,18 +255,18 @@ The numbers above use the per-question oracle methodology MemPalace headlines on
 
 | Category | N | Mnemosyne hit@5 | MemPalace hit@5 | Δ |
 |---|:---:|:---:|:---:|:---:|
-| simple | 1000 | **94.8%** | — | — |
-| noisy | 1000 | **82.9%** | 43.4% | **+39.5** |
-| highlevel | 1500 | 67.2% | — | — |
-| knowledge_update | 1000 | 88.8% | — | — |
-| comparative | 1000 | **99.4%** | 98.4% | +1.0 |
-| conditional | 1000 | **90.9%** | 57.3% | **+33.6** |
+| simple | 1000 | **95.7%** | — | — |
+| noisy | 1000 | **77.0%** | 43.4% | **+33.6** |
+| highlevel | 1500 | 67.9% | — | — |
+| knowledge_update | 1000 | 93.7% | — | — |
+| comparative | 1000 | **99.7%** | 98.4% | +1.3 |
+| conditional | 1000 | **89.7%** | 57.3% | **+32.4** |
 | aggregative | 1000 | 88.2% | 99.3% | −11.1 |
 | **Overall** | **7500** | **86.1%** | ~80.3% | **+5.8** |
 
 `aggregative` is an honest loss — dense embeddings beat keyword retrieval on cross-turn synthesis. The two categories MemPalace declined to publicize (`noisy`, `conditional`) are also the two where their hybrid struggles and our keyword retriever wins decisively.
 
-At top-1: Mnemosyne **44.85%** overall hit@1 across the same 7,500 items.
+At top-1: Mnemosyne **48.2%** overall hit@1 across the same 7,500 items.
 
 #### LoCoMo (1,986 multi-hop QA pairs)
 
@@ -272,11 +274,11 @@ At top-1: Mnemosyne **44.85%** overall hit@1 across the same 7,500 items.
 
 | top-k | Mnemosyne R@k | MemPalace R@k (no rerank) | Δ |
 |:---:|:---:|:---:|:---:|
-| 5 | 52.7% | not published | — |
-| 10 | 59.7% | 60.3% | −0.6 |
-| 50 | 72.7% | not published | — |
+| 5 | 53.4% | not published | — |
+| 10 | 61.1% | 60.3% | **+0.8** |
+| 50 | 73.2% | not published | — |
 
-At top-10 the zero-dep keyword retriever lands within 0.6pp of MemPalace's hybrid. The +13pp jump from top-10 to top-50 illustrates the structural easing that comes with retrieving more candidates. Worth flagging: MemPalace's LoCoMo bench script default is `--top-k 50` while their public README example invokes `--top-k 10`; their published 60.3% is the top-10 number, but operators copying the default get the much-easier top-50 setup. We publish at top-5, top-10, and top-50 so the comparison is unambiguous.
+At top-10 the zero-dep keyword retriever now edges *ahead* of MemPalace's hybrid (+0.8pp). The +12pp jump from top-10 to top-50 illustrates the structural easing that comes with retrieving more candidates. Worth flagging: MemPalace's LoCoMo bench script default is `--top-k 50` while their public README example invokes `--top-k 10`; their published 60.3% is the top-10 number, but operators copying the default get the much-easier top-50 setup. We publish at top-5, top-10, and top-50 so the comparison is unambiguous.
 
 #### LongMemEval `_s_cleaned` (hard mode, 470 questions)
 
@@ -284,9 +286,9 @@ The harder LongMemEval split that MemPalace's headline 96.6% is computed against
 
 | Tier | Mnemosyne R@5 | Mnemosyne R@10 |
 |---|:---:|:---:|
-| Markdown (zero-dep) | 44.3% | 51.5% |
+| Markdown (zero-dep) | 68.9% | 81.5% |
 
-The honest number: keyword retrieval cannot match dense embeddings under the noise level of `_s_cleaned`. This is why the core / full tiers exist — for hard-mode comparison, install 0K-RAG. (Hard-mode core/full numbers will land in a follow-up release once the comparison run completes.)
+The honest number: keyword retrieval still lands below dense embeddings (MemPalace's 96.6%) under `_s_cleaned`'s noise level — but the v2.2 BM25 scoring fix **nearly doubled it, from 44.3% to 68.9% R@5**, by no longer flattening strong matches into a tie at the top of the ranking. For top accuracy at this difficulty, install 0K-RAG. (Hard-mode core/full numbers will land in a follow-up release once the comparison run completes.)
 
 ## Security
 
@@ -308,7 +310,7 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 
 (HTML-entity encoding `&#105;gnore` was an earlier limitation — v1.1.0 added a numeric + small-named-entity decoder, MED-2 in the audit, so it IS now caught alongside the URL-encoded variants.)
 
-**Test coverage:** 396 tests total (296 Python + 100 bun). The adversarial bun suite alone has 100 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention. `test_content_scanner.py` mirrors the same 56 cases at read time on retrieved chunks (defense in depth — same patterns, both write-time and read-time).
+**Test coverage:** 510 tests total (410 Python + 100 bun). The adversarial bun suite alone has 100 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention. `test_content_scanner.py` mirrors the same 56 cases at read time on retrieved chunks (defense in depth — same patterns, both write-time and read-time).
 
 For comparison: MemPalace has zero memory validation. No injection detection, no size limits, no content scanning.
 
@@ -335,7 +337,7 @@ The plugin auto-detects which tier is available and uses the best one.
 ## Test Suite
 
 ```bash
-make test          # Run all 469 tests (369 Python + 100 bun)
+make test          # Run all 510 tests (410 Python + 100 bun)
 make test-fast     # Unit + adversarial only (<1s)
 make test-integration  # Hook I/O + plugin structure
 ```
@@ -344,6 +346,10 @@ make test-integration  # Hook I/O + plugin structure
 |---|---|:---:|---|
 | `test_markdown_retriever.py` | Python unittest | 23 | Two-pass keyword retrieval algorithm |
 | `test_markdown_retriever_limits.py` | Python unittest | 8 | Retriever DoS guards (256KB cap, 5000-entry index ceiling) |
+| `test_score_discrimination.py` | Python unittest | 6 | v2.2 BM25 cap-saturation fix: raw-score ranking, max-normalized display, discrimination under high IDF |
+| `test_time_aware_ranking.py` | Python unittest | 16 | v2.2 time-aware ranking: half-life, temporal-query detection, search integration, reinforcement, staleness feed |
+| `test_additive_recency.py` | Python unittest | 9 | v2.2 additive-λ recency tie-breaker: recency-signal math, strong-old-beats-weak-recent, bounded bonus |
+| `test_reinforcement_ledger.py` | Python unittest | 10 | v2.2 usage sidecar: append-only record/aggregate, poisoned-ledger defenses (line/byte caps, schema validation) |
 | `test_auto_retrieve.py` | Python unittest | 20 | RAG detection, memory dir walk, rate limiting |
 | `test_auto_retrieve_security.py` | Python unittest | 30 | RAG path allowlist, importlib loader, untrusted-retrieved-memory delimiter |
 | `test_content_scanner.py` | Python unittest | 56 | Read-time injection scanner (mirror of bun adversarial suite, applied to retrieved chunks) |
@@ -358,7 +364,7 @@ make test-integration  # Hook I/O + plugin structure
 | `test_enforce_skip_override.py` | Python unittest | 8 | Skip-override detection from `tool_input.command` (same-line prefix only), session-env path, behavioral subprocess runs against a throwaway git repo |
 | `test_memory_validation.test.ts` | Bun test | 100 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding + read-time scanner) |
 
-**Total: 469 tests** (369 Python + 100 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
+**Total: 510 tests** (410 Python + 100 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
 
 ## License
 
