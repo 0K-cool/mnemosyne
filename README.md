@@ -41,7 +41,9 @@ By [ZerOK Labs](https://zeroklabs.ai) — part of the 0K product suite.
 
 ## Install
 
-**Platform:** macOS (Apple Silicon optimized). Windows support planned.
+**Platform:** macOS · Linux · Windows — CI-proven on all three. Pure stdlib Python (plus `PyYAML` for the optional enforce feature) and `bun` for the validation hook.
+
+> **Windows:** ensure Python 3.10+ is on your PATH as `python3` (the Microsoft Store Python provides a `python3` launcher; otherwise add an alias) and install [bun](https://bun.sh). Hooks run via Claude Code's exec form, so no WSL or shell configuration is required.
 
 ```
 claude plugins install mnemosyne
