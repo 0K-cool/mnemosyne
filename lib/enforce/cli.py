@@ -326,7 +326,10 @@ def _process_one(
                 # run via their interpreter, so +x is neither available nor
                 # needed there.
                 os.fchmod(fd, 0o755)  # nosec B103  # nosemgrep
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            # newline="\n": generated hooks (esp. shell) must be LF on every
+            # platform — text mode would translate to CRLF on Windows and
+            # break `bash` on the generated .sh hooks.
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
                 f.write(hook_source)
             os.replace(tmp_path, out_path)
         except Exception:
