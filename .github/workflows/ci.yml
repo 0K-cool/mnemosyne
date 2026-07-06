@@ -50,6 +50,12 @@ jobs:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      # The plugin's own file I/O (lib/, hooks/) is explicit encoding="utf-8",
+      # so it runs correctly on Windows unaided. The TEST harness writes some
+      # fixtures with implicit encoding; UTF-8 mode normalises the harness to
+      # match the plugin — and matches the Python 3.15 default (PEP 686).
+      PYTHONUTF8: "1"
     strategy:
       fail-fast: false
       matrix:

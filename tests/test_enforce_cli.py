@@ -16,6 +16,7 @@ Behavior contract:
 """
 
 import io
+import os
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -321,11 +322,16 @@ class TestEnforceSymlinkDefense(unittest.TestCase):
         )
 
         # Victim file mode MUST NOT have been chmod'd to 0o755.
-        self.assertEqual(
-            victim.stat().st_mode & 0o777,
-            original_mode,
-            "CRIT-2: symlink was followed, victim file mode changed",
-        )
+        # POSIX-only: Windows has no Unix mode bits (st_mode reflects just the
+        # read-only flag), so this assertion is meaningless there. The content
+        # and error-message checks above already prove the symlink wasn't
+        # followed on every platform.
+        if os.name != "nt":
+            self.assertEqual(
+                victim.stat().st_mode & 0o777,
+                original_mode,
+                "CRIT-2: symlink was followed, victim file mode changed",
+            )
 
         # The error message should clearly identify the symlink as the
         # cause so the operator can investigate (vs a generic IOError).
