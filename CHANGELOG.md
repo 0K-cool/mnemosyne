@@ -4,6 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.1
 [2.3.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.0
 [2.2.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.2.0
 [2.1.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.1.1
@@ -11,6 +12,24 @@ for versioning.
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.1] — 2026-07-06
+
+**Packaging fix — the plugin now actually installs.** v2.3.0 shipped working
+cross-platform code but not an installable package (caught by a thorough
+downstream install test on Claude Code 2.1.201).
+
+- Manifests moved to `.claude-plugin/` — CLI ≥2.1 requires `plugin.json` there,
+  not at the repo root.
+- The repo is now a single-plugin **marketplace** (`.claude-plugin/marketplace.json`),
+  so `marketplace add` / `install` can resolve it.
+- `plugin.json` schema fixes: `author` is now an object; skills are declared via
+  the `skills` array (the `setup-rag` entry was a skill, not a command); dropped
+  the non-standard `compatibleWith` / `features` / `optionalIntegrations` keys.
+- Install flow: `claude plugins marketplace add 0K-cool/mnemosyne` then
+  `claude plugins install mnemosyne@mnemosyne`.
+- CI now runs `claude plugins validate .`, so manifest/schema drift fails the
+  build instead of shipping.
 
 ## [2.3.0] — 2026-07-06
 

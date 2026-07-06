@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "mnemosyne",
+  "description": "Structured AI memory for professionals. 100% local. Zero cloud. Security-first.",
+  "owner": { "name": "ZerOK Labs", "url": "https://github.com/0K-cool" },
+  "plugins": [
+    {
+      "name": "mnemosyne",
+      "description": "Structured AI memory for professionals. 100% local. Zero cloud. Security-first.",
+      "author": { "name": "ZerOK Labs" },
+      "category": "productivity",
+      "source": "./",
+      "homepage": "https://github.com/0K-cool/mnemosyne"
+    }
+  ]
+}
