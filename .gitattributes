@@ -1,0 +1,12 @@
+# Normalise line endings to LF on all platforms. Without this, git's
+# autocrlf on Windows checks out CRLF, which breaks `bash -n` on generated
+# shell hooks and can trip interpreters that don't expect a trailing \r.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending normalised.
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.ico binary
+*.pdf binary
