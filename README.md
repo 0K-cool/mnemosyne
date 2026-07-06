@@ -46,10 +46,11 @@ By [ZerOK Labs](https://zeroklabs.ai) — part of the 0K product suite.
 > **Windows:** the hooks invoke `python3`. The **Microsoft Store** Python and `winget install python` both provide a `python3` command, so those work out of the box. The **python.org** installer ships only `python.exe` — if you use it, expose `python3` on your PATH (enable the *python3* App Execution Alias, or copy `python.exe` to a `python3.exe` on PATH). Also install [bun](https://bun.sh). No WSL or shell configuration is required.
 
 ```
-claude plugins install mnemosyne
+claude plugins marketplace add 0K-cool/mnemosyne
+claude plugins install mnemosyne@mnemosyne
 ```
 
-That's it — the retriever core has no third-party dependencies and works immediately. (`PyYAML` is pulled only if you use the optional enforce feature; `bun` runs the validation hook.)
+The repo is a single-plugin marketplace, so add it once, then install. The retriever core has no third-party dependencies and works immediately. (`PyYAML` is pulled only if you use the optional enforce feature; `bun` runs the validation hook.)
 
 ## What You Get
 

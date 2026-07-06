@@ -107,21 +107,28 @@ class TestDualModeDetection(unittest.TestCase):
 class TestPluginStructure(unittest.TestCase):
     """Verify all required plugin files exist and are valid."""
 
-    def test_plugin_json_exists(self):
-        """plugin.json must exist at the plugin root."""
-        self.assertTrue((PLUGIN_DIR / "plugin.json").is_file(), "plugin.json not found")
+    def test_plugin_manifests_exist(self):
+        """Plugin + marketplace manifests must live under .claude-plugin/ (CLI >=2.1)."""
+        self.assertTrue(
+            (PLUGIN_DIR / ".claude-plugin" / "plugin.json").is_file(),
+            ".claude-plugin/plugin.json not found",
+        )
+        self.assertTrue(
+            (PLUGIN_DIR / ".claude-plugin" / "marketplace.json").is_file(),
+            ".claude-plugin/marketplace.json not found",
+        )
 
     def test_plugin_json_valid(self):
-        """plugin.json must be valid JSON with name='mnemosyne' and features.mcpServer=False."""
-        plugin_path = PLUGIN_DIR / "plugin.json"
-        with open(plugin_path) as fh:
+        """plugin.json must be valid JSON: name='mnemosyne', author an object, skills a list."""
+        plugin_path = PLUGIN_DIR / ".claude-plugin" / "plugin.json"
+        with open(plugin_path, encoding="utf-8") as fh:
             data = json.load(fh)
 
         self.assertEqual(data.get("name"), "mnemosyne", "plugin.json name mismatch")
-        self.assertFalse(
-            data.get("features", {}).get("mcpServer"),
-            "Expected features.mcpServer=false",
+        self.assertIsInstance(
+            data.get("author"), dict, "author must be an object (CLI >=2.1 schema)"
         )
+        self.assertIsInstance(data.get("skills"), list, "skills must be an array")
 
     def test_all_hooks_exist(self):
         """All required hook files must exist in hooks/."""
