@@ -9,8 +9,9 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Claude_Code-orange.svg" alt="Claude Code" />
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/version-2.2.0-brightgreen.svg" alt="Version 2.2.0" />
-  <img src="https://img.shields.io/badge/tests-510%20passing-brightgreen.svg" alt="510 tests passing" />
+  <img src="https://img.shields.io/badge/version-2.3.2-brightgreen.svg" alt="Version 2.3.2" />
+  <img src="https://img.shields.io/badge/tests-518%20passing-brightgreen.svg" alt="518 tests passing" />
+  <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-informational.svg" alt="macOS · Linux · Windows" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
   <img src="https://img.shields.io/badge/v2-memory--driven_enforcement-9d4edd.svg" alt="v2 memory-driven enforcement" />
@@ -71,7 +72,7 @@ Set these in `~/.claude/settings.json` under `"env"` (or as OS environment varia
 - **Memory-driven enforcement (v2.0.0)** — memory entries with an `enforce:` block generate Claude Code hooks that **hard-block at the tool boundary**. The agent cannot rationalise its way around the rule because the runtime intercepts before the tool runs. ([How](#memory-driven-enforcement-v2))
 - **Self-improvement** — `/gotcha` captures mistakes at the source
 - **Session mining** — `/mine-session` extracts learnings from past conversations
-- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 100 test cases including homoglyph and encoding bypass)
+- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 103 test cases including homoglyph, encoding bypass, and Windows path detection)
 - **Templates** — starter `MEMORY.md`, `identity.txt`, and `memory/` directory
 
 ## How It Works
@@ -324,7 +325,7 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 
 (HTML-entity encoding `&#105;gnore` was an earlier limitation — v1.1.0 added a numeric + small-named-entity decoder, MED-2 in the audit, so it IS now caught alongside the URL-encoded variants.)
 
-**Test coverage:** 510 tests total (410 Python + 100 bun). The adversarial bun suite alone has 100 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention. `test_content_scanner.py` mirrors the same 56 cases at read time on retrieved chunks (defense in depth — same patterns, both write-time and read-time).
+**Test coverage:** 518 tests total (415 Python + 103 bun). The adversarial bun suite alone has 103 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention. `test_content_scanner.py` mirrors the same 56 cases at read time on retrieved chunks (defense in depth — same patterns, both write-time and read-time).
 
 For comparison: MemPalace has zero memory validation. No injection detection, no size limits, no content scanning.
 
@@ -351,7 +352,7 @@ The plugin auto-detects which tier is available and uses the best one.
 ## Test Suite
 
 ```bash
-make test          # Run all 510 tests (410 Python + 100 bun)
+make test          # Run all 518 tests (415 Python + 103 bun)
 make test-fast     # Unit + adversarial only (<1s)
 make test-integration  # Hook I/O + plugin structure
 ```
@@ -364,11 +365,11 @@ make test-integration  # Hook I/O + plugin structure
 | `test_time_aware_ranking.py` | Python unittest | 16 | v2.2 time-aware ranking: half-life, temporal-query detection, search integration, reinforcement, staleness feed |
 | `test_additive_recency.py` | Python unittest | 9 | v2.2 additive-λ recency tie-breaker: recency-signal math, strong-old-beats-weak-recent, bounded bonus |
 | `test_reinforcement_ledger.py` | Python unittest | 10 | v2.2 usage sidecar: append-only record/aggregate, poisoned-ledger defenses (line/byte caps, schema validation) |
-| `test_auto_retrieve.py` | Python unittest | 20 | RAG detection, memory dir walk, rate limiting |
+| `test_auto_retrieve.py` | Python unittest | 22 | RAG detection, memory dir walk, rate limiting, OS-aware venv path (Windows) |
 | `test_auto_retrieve_security.py` | Python unittest | 30 | RAG path allowlist, importlib loader, untrusted-retrieved-memory delimiter |
 | `test_content_scanner.py` | Python unittest | 56 | Read-time injection scanner (mirror of bun adversarial suite, applied to retrieved chunks) |
-| `test_integration.py` | Python unittest | 10 | Dual-mode detection, plugin structure |
-| `test_hook_io.py` | Python unittest | 9 | Subprocess JSON contracts for all 4 hooks |
+| `test_integration.py` | Python unittest | 11 | Dual-mode detection, plugin structure, `.claude-plugin/` manifest + `hooks.json` validation |
+| `test_hook_io.py` | Python unittest | 11 | Subprocess JSON contracts for all 4 hooks + Windows backslash memory-path regression |
 | `test_enforce_schema.py` | Python unittest | 80 | v2 `enforce:` block validation: required fields, paths, strict char allow-list, ReDoS guard, regex compile, template / tool compatibility, injection fields, protected_branches, credential_patterns, language, mode, escalation policy |
 | `test_enforce_generator.py` | Python unittest | 57 | v2 generator: parse, dispatch, render, per-context sanitisers, warn-mode emission, bun-build / `compile()` / `bash -n` smoke tests across all template + language combinations |
 | `test_enforce_cli.py` | Python unittest | 19 | v2 `mnemosyne enforce` CLI: walk memory dir, idempotent regen, dry-run, single-rule mode, orphan reporting, symlink-safe atomic write, archive-dir skip + parse-failure classification (v2.1.1) |
@@ -376,9 +377,9 @@ make test-integration  # Hook I/O + plugin structure
 | `test_enforce_escalation.py` | Python unittest | 28 | v2.1.0 soft-to-hard escalation: timestamp dialects, windowed warn counting, policy join, READY evaluation, gated apply (rewrite + revalidate + regenerate), webhook scheme allow-list + fail-soft, CLI exit codes |
 | `test_enforce_sync.py` | Python unittest | 9 | v2.1.0 `--sync` retirement pass: provenance check, foreign-file guard, gated deletion, sidecar preservation |
 | `test_enforce_skip_override.py` | Python unittest | 8 | Skip-override detection from `tool_input.command` (same-line prefix only), session-env path, behavioral subprocess runs against a throwaway git repo |
-| `test_memory_validation.test.ts` | Bun test | 100 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding + read-time scanner) |
+| `test_memory_validation.test.ts` | Bun test | 103 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding + read-time scanner + Windows path detection) |
 
-**Total: 510 tests** (410 Python + 100 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
+**Total: 518 tests** (415 Python + 103 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
 
 ## License
 

@@ -17,8 +17,8 @@ Security fixes land on the **latest minor** release.
 
 | Version           | Supported      |
 |-------------------|----------------|
-| v2.1.0            | **Yes — current**            |
-| v2.0.x            | No — upgrade to v2.1.0 (fixes land on the latest minor) |
+| v2.3.x            | **Yes — current**            |
+| v2.0.x – v2.2.x   | No — upgrade to v2.3.x (fixes land on the latest minor) |
 | v2.0.0-alpha      | No — superseded; upgrade |
 | v1.1.x            | Yes (security fixes only)    |
 | v1.0.x            | No — upgrade                 |
