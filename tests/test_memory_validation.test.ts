@@ -8,7 +8,7 @@ import {
   decodeBase64Chunks,
   INJECTION_PATTERNS,
   MAX_FILE_SIZE_BYTES,
-} from "../hooks/memory-validation";
+} from "../hooks/memory-validation-core";
 
 // ============================================================================
 // Contract Tests
