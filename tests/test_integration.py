@@ -159,6 +159,28 @@ class TestPluginStructure(unittest.TestCase):
             except py_compile.PyCompileError as exc:
                 self.fail(f"Hook does not compile: hooks/{hook}: {exc}")
 
+    def test_hooks_json_valid_and_references_exist(self):
+        """hooks/hooks.json parses and every referenced hook script exists."""
+        import json
+        hooks_json = HOOKS_DIR / "hooks.json"
+        self.assertTrue(hooks_json.is_file(), "Missing hooks/hooks.json")
+        with open(hooks_json, encoding="utf-8") as fh:
+            config = json.load(fh)
+        self.assertIn("hooks", config)
+        referenced = []
+        for _event, entries in config["hooks"].items():
+            for entry in entries:
+                for hook in entry.get("hooks", []):
+                    for arg in hook.get("args", []):
+                        if "${CLAUDE_PLUGIN_ROOT}/hooks/" in arg:
+                            referenced.append(arg.split("/hooks/", 1)[1])
+        self.assertTrue(referenced, "hooks.json references no hook scripts")
+        for script in referenced:
+            self.assertTrue(
+                (HOOKS_DIR / script).is_file(),
+                f"hooks.json references missing script: hooks/{script}",
+            )
+
     def test_all_skills_exist(self):
         """Required skill SKILL.md files must exist in skills/."""
         required_skills = [
