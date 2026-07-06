@@ -41,15 +41,15 @@ By [ZerOK Labs](https://zeroklabs.ai) — part of the 0K product suite.
 
 ## Install
 
-**Platform:** macOS · Linux · Windows — CI-proven on all three. Pure stdlib Python (plus `PyYAML` for the optional enforce feature) and `bun` for the validation hook.
+**Platform:** macOS · Linux · Windows — CI-proven on all three. The retriever core is pure stdlib Python; `PyYAML` is needed only for the optional enforce feature, and `bun` runs the validation hook.
 
-> **Windows:** ensure Python 3.10+ is on your PATH as `python3` (the Microsoft Store Python provides a `python3` launcher; otherwise add an alias) and install [bun](https://bun.sh). Hooks run via Claude Code's exec form, so no WSL or shell configuration is required.
+> **Windows:** the hooks invoke `python3`. The **Microsoft Store** Python and `winget install python` both provide a `python3` command, so those work out of the box. The **python.org** installer ships only `python.exe` — if you use it, expose `python3` on your PATH (enable the *python3* App Execution Alias, or copy `python.exe` to a `python3.exe` on PATH). Also install [bun](https://bun.sh). No WSL or shell configuration is required.
 
 ```
 claude plugins install mnemosyne
 ```
 
-That's it. Zero dependencies. Works immediately.
+That's it — the retriever core has no third-party dependencies and works immediately. (`PyYAML` is pulled only if you use the optional enforce feature; `bun` runs the validation hook.)
 
 ## What You Get
 
