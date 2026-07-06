@@ -16,6 +16,7 @@ Behavior contract:
 """
 
 import io
+import os
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -321,11 +322,16 @@ class TestEnforceSymlinkDefense(unittest.TestCase):
         )
 
         # Victim file mode MUST NOT have been chmod'd to 0o755.
-        self.assertEqual(
-            victim.stat().st_mode & 0o777,
-            original_mode,
-            "CRIT-2: symlink was followed, victim file mode changed",
-        )
+        # POSIX-only: Windows has no Unix mode bits (st_mode reflects just the
+        # read-only flag), so this assertion is meaningless there. The content
+        # and error-message checks above already prove the symlink wasn't
+        # followed on every platform.
+        if os.name != "nt":
+            self.assertEqual(
+                victim.stat().st_mode & 0o777,
+                original_mode,
+                "CRIT-2: symlink was followed, victim file mode changed",
+            )
 
         # The error message should clearly identify the symlink as the
         # cause so the operator can investigate (vs a generic IOError).
@@ -348,8 +354,10 @@ class TestEnforceSymlinkDefense(unittest.TestCase):
         self.assertEqual(rc, 0, f"stderr: {err}")
         # New content lands at the target.
         self.assertIn("AUTO-GENERATED", target_path.read_text())
-        # Mode is 0o755 (executable).
-        self.assertEqual(target_path.stat().st_mode & 0o777, 0o755)
+        # Mode is 0o755 (executable) — POSIX only. Windows has no Unix mode
+        # bits and generated hooks run via their interpreter, so +x is not set.
+        if os.name != "nt":
+            self.assertEqual(target_path.stat().st_mode & 0o777, 0o755)
 
     def test_symlink_check_runs_before_idempotent_skip(self):
         """v2.0.0 audit (CR follow-up) — symlink refusal MUST run before

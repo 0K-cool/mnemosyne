@@ -41,13 +41,15 @@ By [ZerOK Labs](https://zeroklabs.ai) — part of the 0K product suite.
 
 ## Install
 
-**Platform:** macOS (Apple Silicon optimized). Windows support planned.
+**Platform:** macOS · Linux · Windows — CI-proven on all three. The retriever core is pure stdlib Python; `PyYAML` is needed only for the optional enforce feature, and `bun` runs the validation hook.
+
+> **Windows:** the hooks invoke `python3`. The **Microsoft Store** Python and `winget install python` both provide a `python3` command, so those work out of the box. The **python.org** installer ships only `python.exe` — if you use it, expose `python3` on your PATH (enable the *python3* App Execution Alias, or copy `python.exe` to a `python3.exe` on PATH). Also install [bun](https://bun.sh). No WSL or shell configuration is required.
 
 ```
 claude plugins install mnemosyne
 ```
 
-That's it. Zero dependencies. Works immediately.
+That's it — the retriever core has no third-party dependencies and works immediately. (`PyYAML` is pulled only if you use the optional enforce feature; `bun` runs the validation hook.)
 
 ## What You Get
 

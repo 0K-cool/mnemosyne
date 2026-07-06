@@ -125,31 +125,37 @@ class TestMemoryValidationIO(unittest.TestCase):
         self.assertEqual(output["decision"], "allow")
 
 
-class TestShellHooksIO(unittest.TestCase):
-    """Test shell hook subprocess I/O contracts."""
+class TestPythonSaveHooksIO(unittest.TestCase):
+    """Test the stdlib-Python save hooks (cross-platform; replaced the bash hooks)."""
 
-    def _run_shell(self, hook_name: str) -> dict:
+    def _run_py(self, hook_name: str, stdin_data: str = "{}") -> dict:
         result = subprocess.run(
-            ["bash", str(HOOKS_DIR / hook_name)],
-            input="{}",
+            [sys.executable, str(HOOKS_DIR / hook_name)],
+            input=stdin_data,
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0, f"{hook_name} crashed: {result.stderr}")
         return json.loads(result.stdout)
 
     def test_auto_save_stop_produces_valid_output(self):
-        """auto-save-stop.sh exits 0 with continue=True and additionalContext."""
-        output = self._run_shell("auto-save-stop.sh")
+        """auto-save-stop.py exits 0 with continue=True and additionalContext."""
+        output = self._run_py("auto-save-stop.py")
         self.assertTrue(output["continue"])
         self.assertIn("additionalContext", output)
         self.assertIn("Mnemosyne", output["additionalContext"])
 
     def test_precompact_save_produces_valid_output(self):
-        """precompact-save.sh exits 0 with continue=True and additionalContext."""
-        output = self._run_shell("precompact-save.sh")
+        """precompact-save.py exits 0 with continue=True and additionalContext."""
+        output = self._run_py("precompact-save.py")
         self.assertTrue(output["continue"])
         self.assertIn("additionalContext", output)
         self.assertIn("Mnemosyne", output["additionalContext"])
+
+    def test_save_hooks_survive_empty_stdin(self):
+        """Both hooks emit valid JSON with continue=True even on empty stdin."""
+        for hook in ("auto-save-stop.py", "precompact-save.py"):
+            output = self._run_py(hook, stdin_data="")
+            self.assertTrue(output["continue"], f"{hook} did not continue on empty stdin")
 
 
 if __name__ == "__main__":

@@ -4,12 +4,30 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.0
 [2.2.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.2.0
 [2.1.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.1.1
 [2.1.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.1.0
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.0] — 2026-07-06
+
+**Cross-platform: native Windows support (plus Linux), CI-proven on all
+three OSes.** Mnemosyne now installs and runs on macOS, Linux, and
+Windows 11 — no WSL required.
+
+- **Save hooks ported to stdlib Python** — `auto-save-stop.sh` /
+  `precompact-save.sh` are now `auto-save-stop.py` / `precompact-save.py`.
+  Bash is no longer a dependency.
+- **Cross-platform hook registration** — new `hooks/hooks.json` declares
+  every hook in exec form (`command` + `args`, `${CLAUDE_PLUGIN_ROOT}`),
+  bypassing the shell entirely.
+- **Windows venv path fix** — `auto-retrieve.py` resolves the optional
+  0K-RAG interpreter at `.venv/Scripts/python.exe` on Windows.
+- **3-OS CI matrix** — the test suite runs on `ubuntu`, `macos`, and
+  `windows`.
 
 ## [2.2.0] — 2026-06-27
 

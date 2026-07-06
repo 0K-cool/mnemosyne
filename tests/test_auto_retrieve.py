@@ -54,7 +54,7 @@ class TestDetectRag(unittest.TestCase):
     def test_returns_true_when_env_enabled_and_venv_exists(self):
         """RAG detected when MNEMOSYNE_RAG_ENABLED=true and .venv exists."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            venv_python = Path(tmpdir) / ".venv" / "bin" / "python3"
+            venv_python = Path(auto_retrieve._venv_python(tmpdir))
             venv_python.parent.mkdir(parents=True)
             venv_python.touch()
             with self._patch_allowlist(Path(tmpdir).parent), \
@@ -96,7 +96,7 @@ class TestDetectRag(unittest.TestCase):
     def test_probes_ok_rag_path_without_explicit_enable(self):
         """Probes ~/tools/0k-rag even without MNEMOSYNE_RAG_ENABLED."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            venv_python = Path(tmpdir) / ".venv" / "bin" / "python3"
+            venv_python = Path(auto_retrieve._venv_python(tmpdir))
             venv_python.parent.mkdir(parents=True)
             venv_python.touch()
             with self._patch_allowlist(Path(tmpdir).parent), \
@@ -114,7 +114,7 @@ class TestDetectRag(unittest.TestCase):
     def test_falls_back_to_vex_rag_path(self):
         """Falls back to VEX_RAG_PATH when ok-rag not found."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            venv_python = Path(tmpdir) / ".venv" / "bin" / "python3"
+            venv_python = Path(auto_retrieve._venv_python(tmpdir))
             venv_python.parent.mkdir(parents=True)
             venv_python.touch()
             with self._patch_allowlist(Path(tmpdir).parent), \
@@ -267,6 +267,18 @@ class TestSessionCounter(unittest.TestCase):
 
     def test_max_session_searches_constant(self):
         self.assertEqual(auto_retrieve.MAX_SESSION_SEARCHES, 3)
+
+
+class TestVenvPython(unittest.TestCase):
+    """_venv_python returns the OS-appropriate venv interpreter path."""
+
+    def test_posix_uses_bin_python3(self):
+        p = auto_retrieve._venv_python("/x/0k-rag", os_name="posix")
+        self.assertTrue(p.replace("\\", "/").endswith(".venv/bin/python3"))
+
+    def test_windows_uses_scripts_python_exe(self):
+        p = auto_retrieve._venv_python("/x/0k-rag", os_name="nt")
+        self.assertTrue(p.replace("\\", "/").endswith(".venv/Scripts/python.exe"))
 
 
 if __name__ == "__main__":

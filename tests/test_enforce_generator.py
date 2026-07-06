@@ -1069,13 +1069,21 @@ class TestWarnMode(unittest.TestCase):
         self.assertNotIn('emit_block "pattern matched"', src)
         # Eval-failure path follows the mode too — soft tier never blocks.
         self.assertNotIn('emit_block "pattern evaluation failed', src)
-        # Must be valid bash.
-        with tempfile.NamedTemporaryFile(suffix=".sh", mode="w", delete=False) as fh:
+        # Must be valid bash. Resolve bash explicitly — a bare "bash" on the
+        # Windows runner can resolve to a WSL stub that cannot read the
+        # Windows temp path (rc 1, empty stderr). Write LF so the script is
+        # valid regardless of platform newline translation.
+        bash_bin = shutil.which("bash")
+        if not bash_bin:
+            self.skipTest("bash not available")
+        with tempfile.NamedTemporaryFile(
+            suffix=".sh", mode="w", newline="\n", encoding="utf-8", delete=False
+        ) as fh:
             fh.write(src)
             tmp = fh.name
         try:
             r = subprocess.run(  # nosec B603, B607 — syntax check only
-                ["bash", "-n", tmp], capture_output=True, text=True, timeout=15,
+                [bash_bin, "-n", tmp], capture_output=True, text=True, timeout=15,
             )
             self.assertEqual(r.returncode, 0, f"bash -n failed:\n{r.stderr}")
         finally:
