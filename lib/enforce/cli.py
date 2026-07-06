@@ -305,10 +305,11 @@ def _process_one(
         #   2. os.fchmod operates on the fd, bypassing umask interference
         #      (the operator's umask shouldn't downgrade hook executable
         #      bits).
-        #   3. os.rename(tmp, out_path) atomically replaces the directory
-        #      entry. If out_path is a symlink, rename replaces the
-        #      symlink itself (does NOT follow it). POSIX guarantees
-        #      atomicity within the same filesystem.
+        #   3. os.replace(tmp, out_path) atomically replaces the directory
+        #      entry. If out_path is a symlink, replace swaps the symlink
+        #      itself (does NOT follow it). POSIX guarantees atomicity
+        #      within the same filesystem; os.replace also overwrites an
+        #      existing target on Windows (os.rename raises there).
         # 0o755 (rwxr-xr-x) matches the PAI hook convention; world-read+exec
         # required because the hook is invoked from contexts where the
         # effective uid may differ. nosec: intentional + matches convention.
@@ -319,10 +320,15 @@ def _process_one(
         )
         tmp_path = Path(tmp_str)
         try:
-            os.fchmod(fd, 0o755)  # nosec B103  # nosemgrep
+            if hasattr(os, "fchmod"):
+                # POSIX only: make the hook executable. Windows lacks
+                # os.fchmod and Unix mode bits entirely, and generated hooks
+                # run via their interpreter, so +x is neither available nor
+                # needed there.
+                os.fchmod(fd, 0o755)  # nosec B103  # nosemgrep
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(hook_source)
-            os.rename(tmp_path, out_path)
+            os.replace(tmp_path, out_path)
         except Exception:
             # Best-effort cleanup; the open fd is already closed by fdopen
             # on its own __exit__. If fdopen raised before taking ownership,
