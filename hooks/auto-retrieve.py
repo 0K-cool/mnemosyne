@@ -174,6 +174,19 @@ def _is_rag_path_allowed(rag_path) -> bool:
 # RAG availability probe
 # ---------------------------------------------------------------------------
 
+def _venv_python(base: str, os_name: str = os.name) -> str:
+    """Return the venv interpreter path for `base`, OS-appropriate.
+
+    Windows venvs place the interpreter at `.venv/Scripts/python.exe`;
+    POSIX venvs use `.venv/bin/python3`. `os_name` defaults to `os.name`
+    so callers stay simple while tests can exercise both branches.
+    """
+    venv = Path(base) / ".venv"
+    if os_name == "nt":
+        return str(venv / "Scripts" / "python.exe")
+    return str(venv / "bin" / "python3")
+
+
 def _probe_rag_candidate(raw_path: str) -> Optional[tuple[str, str]]:
     """Return (resolved_rag_path, python_path) if raw_path is allowlisted
     AND the .venv python exists at the resolved location, else None.
@@ -185,7 +198,7 @@ def _probe_rag_candidate(raw_path: str) -> Optional[tuple[str, str]]:
     resolved = _resolve_allowed_rag_path(raw_path)
     if resolved is None:
         return None
-    python_path = str(Path(resolved) / ".venv" / "bin" / "python3")
+    python_path = _venv_python(resolved)
     if not Path(python_path).exists():
         return None
     return (resolved, python_path)

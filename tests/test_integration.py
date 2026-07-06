@@ -127,8 +127,8 @@ class TestPluginStructure(unittest.TestCase):
         """All required hook files must exist in hooks/."""
         required_hooks = [
             "auto-retrieve.py",
-            "auto-save-stop.sh",
-            "precompact-save.sh",
+            "auto-save-stop.py",
+            "precompact-save.py",
             "memory-validation.ts",
         ]
         for hook in required_hooks:
@@ -137,23 +137,27 @@ class TestPluginStructure(unittest.TestCase):
                 f"Missing hook: hooks/{hook}",
             )
 
-    def test_all_hooks_executable(self):
-        """Python and shell hooks must have the execute bit set."""
-        executable_hooks = [
+    def test_python_hooks_compile(self):
+        """Python hooks must compile. Hooks are invoked via exec form
+        (`python3 <hook>.py`), so the Unix execute bit is no longer
+        required and is not portable to Windows — a syntax/compile check
+        is the cross-platform equivalent of "runnable"."""
+        import py_compile
+        python_hooks = [
             "auto-retrieve.py",
-            "auto-save-stop.sh",
-            "precompact-save.sh",
+            "auto-save-stop.py",
+            "precompact-save.py",
         ]
-        for hook in executable_hooks:
+        for hook in python_hooks:
             path = HOOKS_DIR / hook
             self.assertTrue(
                 path.is_file(),
                 f"Hook not found: hooks/{hook}",
             )
-            self.assertTrue(
-                os.access(path, os.X_OK),
-                f"Hook not executable: hooks/{hook}",
-            )
+            try:
+                py_compile.compile(str(path), doraise=True)
+            except py_compile.PyCompileError as exc:
+                self.fail(f"Hook does not compile: hooks/{hook}: {exc}")
 
     def test_all_skills_exist(self):
         """Required skill SKILL.md files must exist in skills/."""
