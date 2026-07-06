@@ -47,9 +47,20 @@ jobs:
             p/secrets
 
   tests:
-    name: Tests (unittest + bun)
-    runs-on: ubuntu-24.04
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    # Windows runners ship Git Bash; forcing bash keeps the `set -eo pipefail`
+    # steps identical across all three OSes. Hooks are invoked by Claude Code
+    # via exec form (interpreter + script), so no OS-specific shell wiring is
+    # needed here — this matrix proves the code + test suite run everywhere.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -71,12 +82,14 @@ jobs:
         run: |
           set -eo pipefail
           # Core retriever is stdlib; the enforce feature needs PyYAML.
-          pip install -r requirements.txt
+          # `python -m pip` / `python` are provided by setup-python on all
+          # three OSes (Windows has no bare `python3`).
+          python -m pip install -r requirements.txt
 
       - name: Python unit tests
         run: |
           set -eo pipefail
-          python3 -m unittest discover -s tests -p "test_*.py" -v
+          python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Bun adversarial test
         run: |
