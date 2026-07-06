@@ -476,16 +476,15 @@ async function main(): Promise<void> {
   }
 }
 
-// import.meta.main is unreliable on Windows in some Bun versions (path
-// normalisation mismatch), which would leave this hook producing no output
-// when invoked as `bun memory-validation.ts`. Fall back to a case- and
-// separator-normalised comparison against Bun.main.
-const _normPath = (p: string): string => p.replace(/\\/g, "/").toLowerCase();
-const _isEntrypoint =
-  import.meta.main ||
-  (typeof Bun !== "undefined" &&
-    typeof Bun.main === "string" &&
-    _normPath(Bun.main) === _normPath(import.meta.path));
+// import.meta.main is unreliable on Windows in some Bun versions, leaving
+// this hook with no output when invoked as `bun memory-validation.ts`.
+// Detect the entrypoint by the executed script path instead — robust across
+// platforms. The test file that imports this module (test_memory_validation
+// .test.ts) has a different name, so it never matches.
+const _entry = ((typeof process !== "undefined" && process.argv?.[1]) || "")
+  .replace(/\\/g, "/")
+  .toLowerCase();
+const _isEntrypoint = import.meta.main || _entry.endsWith("memory-validation.ts");
 if (_isEntrypoint) {
   main();
 }
