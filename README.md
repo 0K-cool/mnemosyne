@@ -52,6 +52,17 @@ claude plugins install mnemosyne@mnemosyne
 
 The repo is a single-plugin marketplace, so add it once, then install. The retriever core has no third-party dependencies and works immediately. (`PyYAML` is pulled only if you use the optional enforce feature; `bun` runs the validation hook.)
 
+### Configuration
+
+Set these in `~/.claude/settings.json` under `"env"` (or as OS environment variables):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MNEMOSYNE_MEMORY_DIR` | *(cwd walk)* | **Recommended — pin your memory store.** Absolute path to the memory dir. If unset, Mnemosyne walks up from the working directory looking for `MEMORY.md`, which can resolve a store **inside a git working tree** (a commit/exfil risk for client work) and isn't project-scoped. Set this to pin + scope it. Windows: `"MNEMOSYNE_MEMORY_DIR": "C:\\Users\\you\\mnemosyne\\memory"`. |
+| `MNEMOSYNE_RAG_ENABLED` / `MNEMOSYNE_RAG_PATH` | off | Enable optional 0K-RAG vector retrieval. |
+
+**Retrieval tuning (compiled-in defaults):** `MIN_QUERY_LENGTH = 30` — prompts shorter than 30 characters are skipped (so a very short prompt won't trigger recall); `MAX_SESSION_SEARCHES = 3` — at most three auto-retrievals per session.
+
 ## What You Get
 
 - **Auto-save** — memories saved on session end, even if the AI forgets

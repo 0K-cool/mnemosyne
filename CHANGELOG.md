@@ -4,6 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.2]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.2
 [2.3.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.1
 [2.3.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.0
 [2.2.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.2.0
@@ -12,6 +13,25 @@ for versioning.
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.2] — 2026-07-06
+
+**Security fix — Windows memory-poisoning bypass.** On native Windows the L3
+anti-poisoning scan silently never ran: `isMemoryFile()` matched only
+forward-slash paths, so a backslash memory path (`C:\...\memory\evil.md`) was
+not recognized as a memory file and a poisoned write was **allowed**. Caught by
+a downstream install/security test.
+
+- **`isMemoryFile()`** normalizes `\`→`/`, matches the resolved
+  `MNEMOSYNE_MEMORY_DIR` when set, and tightens the `MEMORY.md` match. Windows
+  backslash regression tests added (bun unit + end-to-end hook I/O).
+- **cwd-walk visibility (confidentiality):** `auto-retrieve.py`'s cwd-walk
+  fallback now emits a one-line **stderr notice** when it discovers a memory dir
+  by walking up from the working directory — it could otherwise silently land a
+  store inside a (client) git tree. Behavior kept (project-scoped memory relies
+  on it) but made visible; `MNEMOSYNE_MEMORY_DIR` pins + silences it.
+- **Docs:** `MNEMOSYNE_MEMORY_DIR` documented up front (with a Windows example);
+  `MIN_QUERY_LENGTH=30` / `MAX_SESSION_SEARCHES=3` tuning constants documented.
 
 ## [2.3.1] — 2026-07-06
 
