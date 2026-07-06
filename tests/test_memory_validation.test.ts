@@ -81,6 +81,20 @@ describe("Contract: isMemoryFile", () => {
   test("rejects empty path", () => {
     expect(isMemoryFile("")).toBe(false);
   });
+
+  // Regression (v2.3.2): native-Windows backslash paths must be recognized,
+  // else the L3 anti-poisoning scan silently never runs on Windows.
+  test("detects backslash /memory/ path (Windows)", () => {
+    expect(isMemoryFile("C:\\Users\\k\\project\\memory\\evil.md")).toBe(true);
+  });
+
+  test("detects backslash MEMORY.md (Windows)", () => {
+    expect(isMemoryFile("C:\\Users\\k\\project\\MEMORY.md")).toBe(true);
+  });
+
+  test("does not over-match a non-memory file ending in memory.md", () => {
+    expect(isMemoryFile("/home/user/notmemory.md")).toBe(false);
+  });
 });
 
 describe("Contract: extractContent", () => {

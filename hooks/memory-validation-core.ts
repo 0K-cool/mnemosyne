@@ -274,8 +274,19 @@ export function normaliseText(text: string): string {
 /** Return true if the file path targets a memory file. */
 export function isMemoryFile(filePath: string): boolean {
   if (!filePath) return false;
-  // Matches /memory/ anywhere in path, or filename is MEMORY.md
-  return filePath.includes("/memory/") || filePath.endsWith("MEMORY.md");
+  // Normalize Windows backslash separators FIRST. The tool payload's file_path
+  // uses OS-native separators, so a bare "/memory/" match silently misses on
+  // native Windows (C:\...\memory\evil.md) — the L3 anti-poisoning scan would
+  // never run and the write would be allowed. (Security fix, v2.3.2.)
+  const p = filePath.replace(/\\/g, "/").toLowerCase();
+  // Prefer matching against the configured store — covers memory dirs not
+  // literally named "memory/" (the retriever supports arbitrary dirs).
+  const memDir = (process.env.MNEMOSYNE_MEMORY_DIR ?? "")
+    .replace(/\\/g, "/")
+    .toLowerCase()
+    .replace(/\/+$/, "");
+  if (memDir && (p === memDir || p.startsWith(memDir + "/"))) return true;
+  return p.includes("/memory/") || p.endsWith("/memory.md") || p === "memory.md";
 }
 
 /** Extract the file path from tool_input regardless of which write tool is used. */

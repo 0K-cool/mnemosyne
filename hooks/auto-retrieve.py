@@ -93,10 +93,21 @@ def find_memory_dir() -> str | None:
     # Walk cwd and parents looking for MEMORY.md
     candidate = Path.cwd()
     for _ in range(10):  # cap traversal depth
+        found = None
         if (candidate / "MEMORY.md").exists():
-            return str(candidate)
-        if (candidate / "memory" / "MEMORY.md").exists():
-            return str(candidate / "memory")
+            found = candidate
+        elif (candidate / "memory" / "MEMORY.md").exists():
+            found = candidate / "memory"
+        if found is not None:
+            # Confidentiality: this fallback can resolve a memory dir INSIDE a
+            # (client) git working tree — a commit/exfil surface, with no
+            # project scoping. Make the implicit discovery visible; set
+            # MNEMOSYNE_MEMORY_DIR to pin + scope it and silence this notice.
+            sys.stderr.write(
+                f"[mnemosyne] memory dir discovered via cwd walk: {found} — "
+                "set MNEMOSYNE_MEMORY_DIR to pin it\n"
+            )
+            return str(found)
         parent = candidate.parent
         if parent == candidate:
             break
