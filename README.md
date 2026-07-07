@@ -9,8 +9,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Claude_Code-orange.svg" alt="Claude Code" />
   <a href="https://github.com/0K-cool/mnemosyne/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/version-2.3.3-brightgreen.svg" alt="Version 2.3.3" />
-  <img src="https://img.shields.io/badge/tests-534%20passing-brightgreen.svg" alt="534 tests passing" />
+  <img src="https://img.shields.io/badge/version-2.3.4-brightgreen.svg" alt="Version 2.3.4" />
+  <img src="https://img.shields.io/badge/tests-536%20passing-brightgreen.svg" alt="536 tests passing" />
   <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-informational.svg" alt="macOS · Linux · Windows" />
   <img src="https://img.shields.io/badge/cloud-none-critical.svg" alt="No cloud" />
   <img src="https://img.shields.io/badge/LongMemEval%20R%405-100%25-blueviolet.svg" alt="LongMemEval R@5: 100%" />
@@ -325,7 +325,7 @@ Mnemosyne includes an L3 anti-poisoning hook that blocks memory injection attemp
 
 (HTML-entity encoding `&#105;gnore` was an earlier limitation — v1.1.0 added a numeric + small-named-entity decoder, MED-2 in the audit, so it IS now caught alongside the URL-encoded variants.)
 
-**Test coverage:** 534 tests total (431 Python + 103 bun). The adversarial bun suite alone has 103 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention. `test_content_scanner.py` mirrors the same 56 cases at read time on retrieved chunks (defense in depth — same patterns, both write-time and read-time).
+**Test coverage:** 536 tests total (433 Python + 103 bun). The adversarial bun suite alone has 103 test cases covering contract validation, every regex pattern, homoglyph substitution, encoding bypass attempts, and false-positive prevention. `test_content_scanner.py` mirrors the same 56 cases at read time on retrieved chunks (defense in depth — same patterns, both write-time and read-time).
 
 For comparison: MemPalace has zero memory validation. No injection detection, no size limits, no content scanning.
 
@@ -352,7 +352,7 @@ The plugin auto-detects which tier is available and uses the best one.
 ## Test Suite
 
 ```bash
-make test          # Run all 534 tests (431 Python + 103 bun)
+make test          # Run all 536 tests (433 Python + 103 bun)
 make test-fast     # Unit + adversarial only (<1s)
 make test-integration  # Hook I/O + plugin structure
 ```
@@ -379,7 +379,7 @@ make test-integration  # Hook I/O + plugin structure
 | `test_enforce_skip_override.py` | Python unittest | 8 | Skip-override detection from `tool_input.command` (same-line prefix only), session-env path, behavioral subprocess runs against a throwaway git repo |
 | `test_memory_validation.test.ts` | Bun test | 103 | Adversarial L3 anti-poisoning (contract + bypass + homoglyph + encoding + read-time scanner + Windows path detection) |
 
-**Total: 534 tests** (431 Python + 103 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
+**Total: 536 tests** (433 Python + 103 bun adversarial). The bun suite shells out to a separate runtime; both are wired into `make test`.
 
 ## License
 

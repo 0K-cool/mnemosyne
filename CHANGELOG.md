@@ -4,6 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.4]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.4
 [2.3.3]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.3
 [2.3.2]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.2
 [2.3.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.1
@@ -14,6 +15,20 @@ for versioning.
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.4] — 2026-07-06
+
+**Origin-binding follow-up — close two laundering paths (post-merge review).**
+
+- **Duplicate `origin` keys fail closed.** `_parse_origin` took the last matching
+  `origin:` line, so `origin: derived-untrusted` followed by `origin: operator-direct`
+  laundered up to vetted. Any duplication of the key now → `derived-untrusted`
+  (a normal write has exactly one). Regression tests added.
+- **`mine-session` guidance:** never copy mined facts inline into `MEMORY.md` /
+  Active Work — inline/no-file index entries are treated as `operator-direct` by
+  the retriever (no frontmatter to carry an origin), which would silently launder
+  a mined fact. Link to the derived-untrusted file, or have the operator confirm
+  and re-stamp first.
 
 ## [2.3.3] — 2026-07-06
 
