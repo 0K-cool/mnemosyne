@@ -76,6 +76,17 @@ class TestParseOrigin(unittest.TestCase):
         md = "# Note\norigin: derived-untrusted (this is prose, not frontmatter)"
         self.assertEqual(_parse_origin(md), DEFAULT_ORIGIN)
 
+    def test_duplicate_origin_keys_fail_closed(self):
+        # Origin-laundering: derived-untrusted followed by operator-direct must
+        # NOT upgrade to vetted. Duplicate provenance keys fail closed.
+        md = "---\norigin: derived-untrusted\norigin: operator-direct\n---\nbody"
+        self.assertEqual(_parse_origin(md), DERIVED_UNTRUSTED)
+
+    def test_duplicate_operator_origin_keys_also_fail_closed(self):
+        # Even two "trusted" values are suspicious — a normal write has one key.
+        md = "---\norigin: operator-direct\norigin: operator-direct\n---\nbody"
+        self.assertEqual(_parse_origin(md), DERIVED_UNTRUSTED)
+
 
 # ---------------------------------------------------------------------------
 # Amplifier fix — reinforcement is denied to derived-untrusted origins

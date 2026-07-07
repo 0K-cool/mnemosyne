@@ -154,7 +154,7 @@ def _parse_origin(content: str) -> str:
     lines = content.splitlines()
     if not lines or lines[0].strip() != "---":
         return DEFAULT_ORIGIN
-    origin_val = None
+    origin_vals = []
     closed = False
     for line in lines[1:]:
         if line.strip() == "---":
@@ -162,11 +162,16 @@ def _parse_origin(content: str) -> str:
             break
         m = _ORIGIN_LINE.match(line)
         if m:
-            origin_val = m.group(1).strip().strip('"').strip("'").lower()
-    if not closed or origin_val is None:
+            origin_vals.append(m.group(1).strip().strip('"').strip("'").lower())
+    if not closed or not origin_vals:
         # Unterminated fence or no origin key → treat as vetted (backward-compat).
         return DEFAULT_ORIGIN
-    return DEFAULT_ORIGIN if origin_val in _OPERATOR_ORIGINS else DERIVED_UNTRUSTED
+    # Duplicate provenance keys fail closed: `derived-untrusted` followed by
+    # `operator-direct` must not launder up to vetted (a normal write has one
+    # origin key). Any duplication → derived-untrusted.
+    if len(origin_vals) != 1:
+        return DERIVED_UNTRUSTED
+    return DEFAULT_ORIGIN if origin_vals[0] in _OPERATOR_ORIGINS else DERIVED_UNTRUSTED
 
 
 def _is_temporal_query(query: str) -> bool:
