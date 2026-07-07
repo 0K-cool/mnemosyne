@@ -109,6 +109,66 @@ def _recency_signal(age_days: float, access_count: int) -> float:
     return max(0.0, min(1.0, 0.5 ** (max(0.0, age_days) / hl)))
 
 
+# ---------------------------------------------------------------------------
+# Origin-binding — memory-poisoning hardening (Sleeper / MINJA)
+# ---------------------------------------------------------------------------
+# Every memory carries a provenance tier in its frontmatter. Only operator-origin
+# memories are "vetted": they earn the recency bonus and accrue reinforcement.
+# A `derived-untrusted` memory (written by an automated mining/save path from
+# tool output, retrieval, web, subagent, etc.) is denied both — so a triggered
+# sleeper cannot self-promote via the v2.2 reinforcement ledger, and untrusted
+# content cannot out-rank operator facts on freshness alone. This is the ranking-
+# side half of origin-bound authority; the read scanner adds the context-side tag.
+#
+# Backward-compat: memories with no `origin:` frontmatter default to operator-
+# direct — pre-origin stores are Kelvin's own files and keep full behavior.
+# Fail-closed: an unrecognized origin value is treated as derived-untrusted.
+#
+# Design backing: CaMeL origin-bound authority (arXiv:2503.18813); SMSR proves a
+# provenance-free retrieval filter cannot certify against adaptive injection
+# (arXiv:2606.12703); Anthropic "Zero Trust for AI Agents" (tag source, quarantine
+# untrusted-origin memories). Crypto signing (SMSR Component 1) is deliberately
+# out of scope: on a local single-tenant store an attacker with filesystem write
+# forges the key too — the boundary is origin + capability gating, not a MAC.
+
+DEFAULT_ORIGIN = "operator-direct"
+DERIVED_UNTRUSTED = "derived-untrusted"
+# Values granted operator (vetted) trust. Anything else → derived-untrusted.
+_OPERATOR_ORIGINS = frozenset({"operator-direct", "operator", "user-direct", "user"})
+_ORIGIN_LINE = re.compile(r"^\s*origin\s*:\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _parse_origin(content: str) -> str:
+    """Provenance tier of a memory file: DEFAULT_ORIGIN (vetted) or
+    DERIVED_UNTRUSTED (unvetted).
+
+    Reads ONLY the YAML frontmatter fence (`---` at byte 0). An `origin:` line in
+    the body is prose, not provenance. Rules:
+      - no / malformed / unterminated frontmatter, or no origin key → DEFAULT_ORIGIN
+      - origin in the recognized operator set                       → DEFAULT_ORIGIN
+      - any other origin value                                      → DERIVED_UNTRUSTED
+    Pure stdlib (no YAML dependency) — the retriever stays zero-dep.
+    """
+    if not content or not content.startswith("---"):
+        return DEFAULT_ORIGIN
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return DEFAULT_ORIGIN
+    origin_val = None
+    closed = False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            closed = True
+            break
+        m = _ORIGIN_LINE.match(line)
+        if m:
+            origin_val = m.group(1).strip().strip('"').strip("'").lower()
+    if not closed or origin_val is None:
+        # Unterminated fence or no origin key → treat as vetted (backward-compat).
+        return DEFAULT_ORIGIN
+    return DEFAULT_ORIGIN if origin_val in _OPERATOR_ORIGINS else DERIVED_UNTRUSTED
+
+
 def _is_temporal_query(query: str) -> bool:
     """True when the query is temporal/forensic and decay should be disabled."""
     if not query:
@@ -419,7 +479,9 @@ class MarkdownRetriever:
                 source. Defaults to False (no side effects); the auto-retrieve
                 hook opts in so real session retrievals are the usage signal.
 
-        Returns: [{"source": str, "content": str, "score": float, "method": "markdown"}]
+        Returns: [{"source": str, "content": str, "score": float,
+                   "method": "markdown", "origin": str}]
+        where ``origin`` is "operator-direct" (vetted) or "derived-untrusted".
         """
         query_words = _tokenize(query)
         if not query_words:
@@ -504,15 +566,23 @@ class MarkdownRetriever:
             combined_score = 0.3 * index_score + 0.7 * content_score
             if combined_score > 0.0:
                 source = os.path.basename(file_path)
+                # Origin-binding: unvetted (derived-untrusted) memories are denied
+                # the recency bonus so they cannot out-rank operator facts on
+                # freshness, and are excluded from reinforcement below so a
+                # triggered sleeper cannot self-promote.
+                origin = _parse_origin(content)
+                vetted = origin != DERIVED_UNTRUSTED
                 scored_results.append((
                     combined_score,
-                    _recency(source, file_path),
+                    _recency(source, file_path) if vetted else 0.0,
                     {"source": source,
                      "content": self._extract_best_paragraph(query_words, content),
-                     "method": "markdown"},
+                     "method": "markdown",
+                     "origin": origin},
                 ))
 
-        # Also include entries without files (bold-format, no file_path)
+        # Also include entries without files (bold-format, no file_path). These
+        # live inline in MEMORY.md (operator-curated) → operator-direct/vetted.
         for entry, index_score in candidates:
             if not entry["file_path"] and index_score > 0.0:
                 scored_results.append((
@@ -520,7 +590,8 @@ class MarkdownRetriever:
                     _recency(entry["title"], None),
                     {"source": entry["title"],
                      "content": entry["description"],
-                     "method": "markdown"},
+                     "method": "markdown",
+                     "origin": DEFAULT_ORIGIN},
                 ))
 
         # Additive-λ blend: final = content_norm + RECENCY_WEIGHT * recency.
@@ -544,8 +615,15 @@ class MarkdownRetriever:
             top.append(r)
 
         # Reinforce the returned set (opt-in; the auto-retrieve hook passes True).
+        # Origin-binding: only vetted (operator-origin) memories accrue
+        # reinforcement. Denying it to derived-untrusted memories removes the
+        # self-promotion amplifier — a retrieved sleeper never stretches its
+        # half-life or its recency reference timestamp.
         if reinforce and top:
-            self._ledger.record([r["source"] for r in top])
+            vetted_sources = [r["source"] for r in top
+                              if r.get("origin") != DERIVED_UNTRUSTED]
+            if vetted_sources:
+                self._ledger.record(vetted_sources)
 
         return top
 

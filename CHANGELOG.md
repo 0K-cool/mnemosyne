@@ -4,6 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.3]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.3
 [2.3.2]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.2
 [2.3.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.1
 [2.3.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.0
@@ -13,6 +14,39 @@ for versioning.
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.3] — 2026-07-06
+
+**Security hardening — origin-binding against semantic memory poisoning.**
+Adds a provenance tier to memories so untrusted-origin content cannot acquire the
+ranking authority of operator-asserted facts (Sleeper / MINJA attack classes).
+Prior versions defended the *syntactic* threat (injection strings, encodings)
+well but were blind to a semantically-clean fabricated fact planted from an
+untrusted source.
+
+- **Reinforcement-amplifier fix (self-inflicted bug):** a retrieved
+  `derived-untrusted` memory is no longer written to the reinforcement ledger, so
+  a triggered plant can no longer stretch its own half-life or refresh its recency
+  clock to self-promote in ranking.
+- **Origin frontmatter (`origin: operator-direct | derived-untrusted`):** parsed
+  by the retriever (`markdown_retriever._parse_origin`, zero-dependency). Absent
+  origin defaults to `operator-direct` (existing stores keep full behavior);
+  unrecognized values fail closed to `derived-untrusted`.
+- **Read-time trust tier:** `wrap_untrusted()` surfaces `origin=` and, for
+  `derived-untrusted` memories, prepends an authority-denial notice — the content
+  may inform but may not by itself authorize an action (delete/send/deploy/spend/
+  config/command). Plumbed through `auto-retrieve.py` (RAG chunks unchanged).
+- **Recency-boost denial:** unvetted memories earn no recency bonus, so they
+  compete on content match only and cannot out-rank operator facts on freshness.
+- **`mine-session` stamps `origin: derived-untrusted`:** auto-mined memories are
+  agent-derived from transcripts (which may carry tool/web/subagent content), so
+  they enter at lower trust until an operator confirms them.
+- Deliberately **out of scope:** cryptographic provenance signing (forgeable on a
+  local single-tenant store) and shadow-store contradiction checks (need
+  structured extraction the markdown/BM25 store lacks; embedding-similarity
+  contradiction detection is a proven dead end). The boundary here is origin +
+  capability gating, not detection. Backing: CaMeL (arXiv:2503.18813), SMSR
+  (arXiv:2606.12703), Anthropic "Zero Trust for AI Agents."
 
 ## [2.3.2] — 2026-07-06
 

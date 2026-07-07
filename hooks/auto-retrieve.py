@@ -282,7 +282,8 @@ def _resolve_lance_path() -> str:
 # Retrieved-chunk formatter (shared by RAG + markdown paths)
 # ---------------------------------------------------------------------------
 
-def _format_retrieved_chunk(source: str, project: str, content: str):
+def _format_retrieved_chunk(source: str, project: str, content: str,
+                            origin: str = "operator-direct"):
     """Scan content for injection, sanitize labels, wrap in untrusted delimiter.
 
     Returns the formatted string, or None if the content should be dropped
@@ -290,7 +291,9 @@ def _format_retrieved_chunk(source: str, project: str, content: str):
 
     This is the single choke point that enforces the read-time trust boundary
     — any write-path bypass (git, curl, editor, MCP, subagent) still flows
-    through this function on retrieval.
+    through this function on retrieval. ``origin`` propagates the memory's
+    provenance tier so derived-untrusted memories are wrapped with a lower-trust
+    authority-denial notice (RAG chunks default to operator-direct — unchanged).
     """
     if not content:
         return None
@@ -302,7 +305,8 @@ def _format_retrieved_chunk(source: str, project: str, content: str):
             file=sys.stderr,
         )
         return None
-    return wrap_untrusted(content, source=source, project=project or "unknown")
+    return wrap_untrusted(content, source=source, project=project or "unknown",
+                          origin=origin)
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +421,8 @@ def search_markdown(query: str, memory_dir: str, top_k: int = MAX_RESULTS) -> li
         for r in results:
             source = r.get("source", "memory")
             content = r.get("content", "")
-            chunk = _format_retrieved_chunk(source, "memory", content)
+            origin = r.get("origin", "operator-direct")
+            chunk = _format_retrieved_chunk(source, "memory", content, origin=origin)
             if chunk:
                 formatted.append(chunk)
 
