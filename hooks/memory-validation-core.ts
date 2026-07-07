@@ -10,9 +10,11 @@
  *   - Injection pattern detection (case-insensitive, Unicode-normalised)
  *   - File size cap: 50 KB
  *
- * Output:
- *   {"decision": "allow"}                        — pass through
- *   {"decision": "block", "reason": "..."}       — block the write
+ * Output (Claude Code PreToolUse contract — top-level `decision` is NOT honored
+ * for PreToolUse and fails schema validation, causing the harness to fail open):
+ *   {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}
+ *   {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",
+ *     "permissionDecisionReason":"..."}}  + exit code 2
  *
  * Fail-open: any parse error or unexpected exception returns allow.
  *
@@ -42,6 +44,34 @@ export interface BlockDecision {
 }
 
 export type Decision = AllowDecision | BlockDecision;
+
+// Claude Code PreToolUse hook output contract. The verdict MUST be emitted in
+// this envelope — a top-level {"decision":...} fails PreToolUse schema
+// validation, which the harness treats as a non-blocking hook failure (fails
+// open: the tool call proceeds even on a block verdict).
+export interface PreToolUseOutput {
+  hookSpecificOutput: {
+    hookEventName: "PreToolUse";
+    permissionDecision: "allow" | "deny" | "ask";
+    permissionDecisionReason?: string;
+  };
+}
+
+/** Translate the internal Decision into the PreToolUse output envelope. */
+export function toPreToolUseOutput(d: Decision): PreToolUseOutput {
+  if (d.decision === "block") {
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: d.reason,
+      },
+    };
+  }
+  return {
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },
+  };
+}
 
 interface InjectionPattern {
   pattern: RegExp;
@@ -429,6 +459,24 @@ export function validateMemoryWrite(
 // Main
 // ---------------------------------------------------------------------------
 
+/** Emit an allow verdict in the PreToolUse envelope (exit 0). */
+function emitAllow(): void {
+  console.log(JSON.stringify(toPreToolUseOutput({ decision: "allow" })));
+}
+
+/**
+ * Emit a verdict. On block: writes the deny envelope to stdout AND the reason
+ * to stderr, then exits 2 — covers both harness interpretations (structured
+ * permissionDecision:deny and the exit-code-2 block path).
+ */
+function emitDecision(d: Decision): void {
+  console.log(JSON.stringify(toPreToolUseOutput(d)));
+  if (d.decision === "block") {
+    console.error(`Mnemosyne blocked a memory write: ${d.reason}`);
+    process.exit(2);
+  }
+}
+
 export async function runHook(): Promise<void> {
   let raw = "";
 
@@ -436,12 +484,12 @@ export async function runHook(): Promise<void> {
     raw = await Bun.stdin.text();
   } catch {
     // Stdin read failure — fail-open
-    console.log(JSON.stringify({ decision: "allow" }));
+    emitAllow();
     return;
   }
 
   if (!raw.trim()) {
-    console.log(JSON.stringify({ decision: "allow" }));
+    emitAllow();
     return;
   }
 
@@ -450,7 +498,7 @@ export async function runHook(): Promise<void> {
     data = JSON.parse(raw) as HookInput;
   } catch {
     // Parse error — fail-open, never block the user
-    console.log(JSON.stringify({ decision: "allow" }));
+    emitAllow();
     return;
   }
 
@@ -458,7 +506,7 @@ export async function runHook(): Promise<void> {
 
   // Only gate Write/Edit tools
   if (!WRITE_TOOLS.has(toolName)) {
-    console.log(JSON.stringify({ decision: "allow" }));
+    emitAllow();
     return;
   }
 
@@ -467,23 +515,22 @@ export async function runHook(): Promise<void> {
 
   // Only check memory files
   if (!isMemoryFile(filePath)) {
-    console.log(JSON.stringify({ decision: "allow" }));
+    emitAllow();
     return;
   }
 
   const content = extractContent(toolName, input);
   if (!content) {
     // No content to check
-    console.log(JSON.stringify({ decision: "allow" }));
+    emitAllow();
     return;
   }
 
   try {
-    const decision = validateMemoryWrite(filePath, content);
-    console.log(JSON.stringify(decision));
+    emitDecision(validateMemoryWrite(filePath, content));
   } catch {
     // Unexpected failure — fail-open
-    console.log(JSON.stringify({ decision: "allow" }));
+    emitAllow();
   }
 }
 

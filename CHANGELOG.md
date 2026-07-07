@@ -4,6 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.5]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.5
 [2.3.4]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.4
 [2.3.3]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.3
 [2.3.2]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.2
@@ -15,6 +16,24 @@ for versioning.
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.5] — 2026-07-07
+
+**L3 memory-validation fail-open fix — PreToolUse output schema.** The hook emitted
+its verdict as a top-level `{"decision":"allow"|"block"}`, which Claude Code's
+PreToolUse contract does not honor (it expects `hookSpecificOutput.permissionDecision`).
+The harness treated the invalid JSON as a non-blocking hook failure and let the write
+proceed — so a detected memory-poisoning attempt was **not blocked** (fail-open). The
+scanner decided correctly but the harness discarded the verdict.
+
+- Verdicts now emit the PreToolUse envelope: allow →
+  `permissionDecision:"allow"` (exit 0); block → `permissionDecision:"deny"` +
+  `permissionDecisionReason` on stdout, reason on stderr, **exit 2** so the harness
+  blocks. Internal `validateMemoryWrite()` return type is unchanged.
+- **Test hardening:** hook I/O tests now assert the emitted output against the
+  PreToolUse schema and exit-code semantics — not just that the hook prints JSON.
+  A stdout-only assertion cannot see a harness schema mismatch; this is the guard
+  for that fail-open class (same blind spot as the v2.3.2 backslash bypass).
 
 ## [2.3.4] — 2026-07-06
 
