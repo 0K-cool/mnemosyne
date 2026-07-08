@@ -479,8 +479,14 @@ operators performing fresh installs on Windows 11 Pro.
       `ls ~/.claude/hooks/` and check no two plugins write to the
       same filename.
 - [ ] Run a representative workflow:
-      1. Memory write (Mnemosyne L3 + 0K-Talon should both fire
-         PreToolUse on `Write`)
+      1. Memory write to a `/memory/` file — Mnemosyne L3
+         (`memory-validation`) and 0K-Talon's L3
+         (`L3-memory-file-validation`) both fire PreToolUse on
+         `Write`. Both share the *same* vendored scanner core
+         (`memory-scanner-core.ts`), so they can never disagree:
+         a poisoning write is blocked (either exit-2 suffices),
+         a clean write passes both. Redundant-but-agreeing
+         defense-in-depth; confirm no split-brain / double-nonsense.
       2. Auto-retrieve (Mnemosyne calls `search_kb` on 0K-RAG's
          MCP server; 0K-Talon's MCP gate should allow)
       3. Trigger an `enforce:` block (Mnemosyne v2 generates a
