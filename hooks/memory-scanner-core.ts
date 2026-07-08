@@ -230,8 +230,11 @@ export function decodeHtmlEntities(text: string): string {
           return String.fromCodePoint(cp);
         }
       }
-      if (named && NAMED_ENTITIES[named.toLowerCase()] !== undefined) {
-        return NAMED_ENTITIES[named.toLowerCase()];
+      if (named) {
+        // Single index access so strict `noUncheckedIndexedAccess` narrows the
+        // string|undefined union (a two-access check-then-return does not).
+        const namedVal = NAMED_ENTITIES[named.toLowerCase()];
+        if (namedVal !== undefined) return namedVal;
       }
     } catch {
       // Fall through to original match
@@ -288,13 +291,15 @@ export function isMemoryFile(filePath: string): boolean {
   return p.includes("/memory/") || p.endsWith("/memory.md") || p === "memory.md";
 }
 
-/** Extract the file path from tool_input regardless of which write tool is used. */
-export function extractFilePath(toolName: string, input: Record<string, unknown>): string {
+/** Extract the file path from tool_input regardless of which write tool is used.
+ * (`_toolName` kept for call-site symmetry with extractContent; unused.) */
+export function extractFilePath(_toolName: string, input: Record<string, unknown>): string {
   return (input.file_path as string) || "";
 }
 
-/** Extract the content to be written from tool_input. */
-export function extractContent(toolName: string, input: Record<string, unknown>): string {
+/** Extract the content to be written from tool_input.
+ * (`_toolName` kept for call-site symmetry; content shape is tool-inferred below.) */
+export function extractContent(_toolName: string, input: Record<string, unknown>): string {
   // Write tool uses "content"
   const content = input.content;
   if (typeof content === "string") return content;
