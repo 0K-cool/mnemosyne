@@ -72,7 +72,7 @@ Set these in `~/.claude/settings.json` under `"env"` (or as OS environment varia
 - **Memory-driven enforcement (v2.0.0)** — memory entries with an `enforce:` block generate Claude Code hooks that **hard-block at the tool boundary**. The agent cannot rationalise its way around the rule because the runtime intercepts before the tool runs. ([How](#memory-driven-enforcement-v2))
 - **Self-improvement** — `/gotcha` captures mistakes at the source
 - **Session mining** — `/mine-session` extracts learnings from past conversations
-- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested, 103 test cases including homoglyph, encoding bypass, and Windows path detection)
+- **Memory validation** — L3 anti-poisoning blocks injection attempts (adversarial-tested: homoglyph, encoding bypass, and Windows path detection). The scanner is a pure, dependency-free core (`hooks/memory-scanner-core.ts`) that sibling plugins vendor verbatim — same detection, no runtime coupling
 - **Templates** — starter `MEMORY.md`, `identity.txt`, and `memory/` directory
 
 ## How It Works
@@ -225,6 +225,12 @@ Retrieval: BM25 + stemming + ──► OR ──► vector + BM25 + RRF ──�
 Enforcement (opt-in per memory entry):
    memory entry { enforce: } ──► python -m enforce ──► PreToolUse hook ──► tool boundary block
 ```
+
+The L3 `memory-validation` hook is a thin Bun harness over a pure, dependency-free
+scanner — `hooks/memory-scanner-core.ts` (patterns, normalisation, `validateMemoryWrite`).
+That core is the canonical artifact sibling plugins vendor verbatim (e.g. 0K-Talon's
+file-memory L3), kept in lock-step by a downstream CI drift check: one implementation,
+no runtime dependency between plugins.
 
 ## Benchmark
 

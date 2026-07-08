@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   validateMemoryWrite,
   toPreToolUseOutput,
@@ -17,6 +18,32 @@ import {
 // Decision. A top-level {"decision":...} fails PreToolUse validation and the
 // harness fails OPEN (the block is discarded). Regression guard for that class.
 // ============================================================================
+
+// ============================================================================
+// Scanner-core purity — the shared artifact must stay vendorable
+// The pure core is copied verbatim into sibling plugins (0K-Talon), so it must
+// not import any runtime-specific module (node:fs, Bun) or harness glue. If this
+// fails, the vendored copy would drag a dependency into the consumer.
+// ============================================================================
+
+describe("memory-scanner-core purity (vendorable)", () => {
+  const CORE = readFileSync(new URL("../hooks/memory-scanner-core.ts", import.meta.url), "utf-8");
+
+  test("no node:fs / fs import", () => {
+    expect(/from\s+["']node:fs["']/.test(CORE)).toBe(false);
+    expect(/from\s+["']fs["']/.test(CORE)).toBe(false);
+  });
+
+  test("no Bun runtime API use", () => {
+    expect(/\bBun\./.test(CORE)).toBe(false);
+  });
+
+  test("no harness glue (emit / stdin / process.exit calls)", () => {
+    expect(/process\.exit\s*\(/.test(CORE)).toBe(false); // actual call, not prose
+    expect(/\.stdin\b/.test(CORE)).toBe(false);
+    expect(/hookSpecificOutput/.test(CORE)).toBe(false);
+  });
+});
 
 describe("PreToolUse output schema conformance", () => {
   const isValidPreToolUse = (o: unknown): boolean => {

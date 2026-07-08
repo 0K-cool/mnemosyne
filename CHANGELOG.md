@@ -4,6 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.7]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.7
 [2.3.6]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.6
 [2.3.5]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.5
 [2.3.4]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.4
@@ -17,6 +18,18 @@ for versioning.
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.7] — 2026-07-07
+
+**Extract the pure scanner into a vendorable core (no behavior change).** The scanning
+logic — injection patterns, Unicode/entity/encoding normalisation, memory-file detection,
+`validateMemoryWrite` — moves to `hooks/memory-scanner-core.ts`, a dependency-free module
+with no `node:fs`/`Bun` imports and no harness glue. `memory-validation-core.ts` becomes a
+thin Bun harness that imports + re-exports it (all existing imports/tests unchanged).
+
+This lets sibling plugins reuse the *exact* scanner by vendoring one file — no runtime
+dependency on Mnemosyne, kept in lock-step by a downstream CI drift check. A purity guard
+test keeps the core vendorable. Behavior is identical to v2.3.6.
 
 ## [2.3.6] — 2026-07-07
 
