@@ -38,6 +38,10 @@ describe("memory-scanner-core purity (vendorable)", () => {
     expect(/\bBun\./.test(CORE)).toBe(false);
   });
 
+  test("no process.env read (dir/config is passed in by the harness)", () => {
+    expect(/process\.env/.test(CORE)).toBe(false);
+  });
+
   test("no harness glue (emit / stdin / process.exit calls)", () => {
     expect(/process\.exit\s*\(/.test(CORE)).toBe(false); // actual call, not prose
     expect(/\.stdin\b/.test(CORE)).toBe(false);

@@ -4,6 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.8]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.8
 [2.3.7]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.7
 [2.3.6]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.6
 [2.3.5]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.5
@@ -18,6 +19,16 @@ for versioning.
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.8] — 2026-07-07
+
+**Scanner-core purity — no `process.env` read (post-v2.3.7 review).** `isMemoryFile()`
+still read `process.env.MNEMOSYNE_MEMORY_DIR` inside the "pure" core, which broke the
+dependency-free contract and leaked a Mnemosyne-specific env name into vendored copies.
+Now `isMemoryFile(filePath, memoryDir = "")` takes the configured dir as a parameter; the
+harness (`memory-validation-core.ts`) resolves the env var and passes it. The purity-guard
+test now also asserts the core reads no environment variables. Behavior unchanged — the
+harness still honors `MNEMOSYNE_MEMORY_DIR`.
 
 ## [2.3.7] — 2026-07-07
 

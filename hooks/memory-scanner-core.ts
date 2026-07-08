@@ -273,17 +273,23 @@ export function normaliseText(text: string): string {
   return normalised;
 }
 
-/** Return true if the file path targets a memory file. */
-export function isMemoryFile(filePath: string): boolean {
+/**
+ * Return true if the file path targets a memory file.
+ *
+ * @param filePath  the write target
+ * @param memoryDir optional configured store dir (covers memory dirs not
+ *   literally named "memory/"). Passed in by the harness so this core stays
+ *   pure — it never reads environment variables. Mnemosyne's harness supplies
+ *   its configured store dir; other consumers pass their own (or nothing).
+ */
+export function isMemoryFile(filePath: string, memoryDir = ""): boolean {
   if (!filePath) return false;
   // Normalize Windows backslash separators FIRST. The tool payload's file_path
   // uses OS-native separators, so a bare "/memory/" match silently misses on
   // native Windows (C:\...\memory\evil.md) — the L3 anti-poisoning scan would
   // never run and the write would be allowed. (Security fix, v2.3.2.)
   const p = filePath.replace(/\\/g, "/").toLowerCase();
-  // Prefer matching against the configured store — covers memory dirs not
-  // literally named "memory/" (the retriever supports arbitrary dirs).
-  const memDir = (process.env.MNEMOSYNE_MEMORY_DIR ?? "")
+  const memDir = memoryDir
     .replace(/\\/g, "/")
     .toLowerCase()
     .replace(/\/+$/, "");

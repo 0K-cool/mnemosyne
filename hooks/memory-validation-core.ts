@@ -139,8 +139,9 @@ export async function runHook(): Promise<void> {
   const input = data.tool_input ?? {};
   const filePath = extractFilePath(toolName, input);
 
-  // Only check memory files
-  if (!isMemoryFile(filePath)) {
+  // Only check memory files. The configured store dir is resolved HERE (harness)
+  // and passed into the pure core, which never reads process.env itself.
+  if (!isMemoryFile(filePath, process.env.MNEMOSYNE_MEMORY_DIR ?? "")) {
     emitAllow();
     return;
   }
