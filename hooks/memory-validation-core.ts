@@ -23,6 +23,8 @@
  *   MITRE ATLAS AML.T0064 (Data Poisoning)
  */
 
+import { writeSync } from "node:fs";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -459,20 +461,35 @@ export function validateMemoryWrite(
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Synchronous, drain-safe write to a file descriptor (1=stdout, 2=stderr).
+ * console.log/console.error are async and can truncate on a piped fd when
+ * followed immediately by process.exit — Bun does not guarantee a flush before
+ * exit. writeSync blocks until the bytes are written, looping on partial writes.
+ */
+function writeAllSync(fd: number, text: string): void {
+  const buf = Buffer.from(text, "utf-8");
+  let off = 0;
+  while (off < buf.length) {
+    off += writeSync(fd, buf, off, buf.length - off);
+  }
+}
+
 /** Emit an allow verdict in the PreToolUse envelope (exit 0). */
 function emitAllow(): void {
-  console.log(JSON.stringify(toPreToolUseOutput({ decision: "allow" })));
+  writeAllSync(1, JSON.stringify(toPreToolUseOutput({ decision: "allow" })) + "\n");
 }
 
 /**
  * Emit a verdict. On block: writes the deny envelope to stdout AND the reason
  * to stderr, then exits 2 — covers both harness interpretations (structured
- * permissionDecision:deny and the exit-code-2 block path).
+ * permissionDecision:deny and the exit-code-2 block path). Uses drain-safe
+ * synchronous writes so process.exit(2) cannot truncate the deny envelope.
  */
 function emitDecision(d: Decision): void {
-  console.log(JSON.stringify(toPreToolUseOutput(d)));
+  writeAllSync(1, JSON.stringify(toPreToolUseOutput(d)) + "\n");
   if (d.decision === "block") {
-    console.error(`Mnemosyne blocked a memory write: ${d.reason}`);
+    writeAllSync(2, `Mnemosyne blocked a memory write: ${d.reason}\n`);
     process.exit(2);
   }
 }
