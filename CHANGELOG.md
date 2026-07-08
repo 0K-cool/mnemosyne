@@ -4,6 +4,7 @@ All notable changes to Mnemosyne are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver
 for versioning.
 
+[2.3.6]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.6
 [2.3.5]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.5
 [2.3.4]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.4
 [2.3.3]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.3.3
@@ -16,6 +17,18 @@ for versioning.
 [2.0.1]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.1
 [2.0.0]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0
 [2.0.0-alpha]: https://github.com/0K-cool/mnemosyne/releases/tag/v2.0.0-alpha
+
+## [2.3.6] — 2026-07-07
+
+**L3 emit hardening — drain-safe stdout before exit(2).** Follow-up to v2.3.5.
+`console.log(...)` immediately followed by `process.exit(2)` can truncate the deny
+envelope on a piped stdout (Bun does not guarantee a flush before exit), so the harness
+could miss the structured `permissionDecision:"deny"` output. The block still held via
+exit code 2 (fail-closed), but the structured JSON could be lost.
+
+- New `writeAllSync(fd, text)` — synchronous, loops on partial writes; blocks until the
+  bytes are on the fd so `process.exit(2)` cannot truncate. `emitAllow`/`emitDecision`
+  use it for stdout and the stderr block reason. Behavior otherwise unchanged.
 
 ## [2.3.5] — 2026-07-07
 
