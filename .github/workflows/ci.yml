@@ -306,6 +306,26 @@ jobs:
             fi
 
             if [ -n "$body" ]; then
+              # NOT-YET-A-REVIEW. CodeRabbit posts a placeholder comment within
+              # seconds of a PR opening -- "Currently processing new changes in
+              # this PR" -- and only later EDITS it into the actual review. That
+              # stub is fresh by definition and carries no rate-limit marker, so
+              # without this check it satisfies the pass branch below.
+              #
+              # Observed 2026-07-28 on mnemosyne#65, the first PR to run this job
+              # on that repo: gate green in 6 seconds, CodeRabbit check still
+              # "Review in progress". A third route from "did not review" to
+              # "green", inside the job written to close the other two.
+              #
+              # Keyed on the auto-generated HTML marker rather than the prose,
+              # which is user-visible and likelier to be reworded.
+              if printf '%s' "$body" | grep -qiF 'review in progress by coderabbit.ai'; then
+                echo "attempt $attempt/10: CodeRabbit has posted only its" \
+                     "'review in progress' placeholder, not a review; waiting 60s..."
+                sleep 60
+                continue
+              fi
+
               # DELIBERATELY NARROW: these two markers are the one failure mode
               # actually observed (0k-talon#52, twice). CodeRabbit has other
               # "did not really review" states — path-filter exclusion, draft-PR
