@@ -39,12 +39,42 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
+      # NOT semgrep/semgrep-action — it runs `semgrep ci`, the semgrep-app mode.
+      # Without SEMGREP_APP_TOKEN it errors, announces "Semgrep will succeed
+      # because there were no blocking findings", and exits 0.
+      #
+      # Measured 2026-07-28 across every repo using this template — vex,
+      # 0k-talon, 0k-rag, mnemosyne — all showed `semgrep ci` -> banner -> job
+      # cleanup in 2-3 seconds. Scanning nothing. Reporting pass. Every run
+      # since the template was written. On vex, the first real scan found two
+      # live command injections.
+      #
+      # `semgrep scan` needs no token. Verified: clean file -> exit 0; a file
+      # with eval() + shell=True -> exit 1, "Findings: 2 (2 blocking)".
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v6.2.0
         with:
-          config: |
-            p/default
-            p/security-audit
-            p/secrets
+          python-version: '3.12'
+      - name: Semgrep scan
+        run: |
+          set -eo pipefail
+          pip install --quiet 'semgrep>=1.100.0'
+          # Rule exclusions triaged on vex against 109 real hits, not guessed:
+          #  path-join-resolve-traversal — join(dir, entry.name) from readdirSync;
+          #    a POSIX dirent name cannot contain a separator.
+          #  detect-non-literal-regexp — these codebases BUILD detection patterns
+          #    from config by design; flagging it flags the architecture.
+          # detect-child-process is deliberately NOT excluded: on vex it found
+          # the real injection.
+          semgrep scan \
+            --config=p/default \
+            --config=p/security-audit \
+            --config=p/secrets \
+            --error \
+            --metrics=off \
+            --exclude='**/node_modules/**' \
+            --exclude-rule=javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal \
+            --exclude-rule=javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
 
   tests:
     name: Tests (${{ matrix.os }})
