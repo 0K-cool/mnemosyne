@@ -412,6 +412,9 @@ def _post_webhook(url: str, payload: dict[str, Any]) -> bool:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        # Scheme is allow-listed above; `# nosec` is bandit's marker and semgrep
+        # needs its own, on the line immediately preceding the finding.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(req, timeout=WEBHOOK_TIMEOUT_SECS) as resp:  # nosec B310 — scheme allow-listed above
             status = getattr(resp, "status", 200)
             return 200 <= status < 300
