@@ -151,3 +151,208 @@ jobs:
         run: |
           set -eo pipefail
           claude plugins validate .
+
+  # ==========================================================================
+  # Reviewed-at-this-commit gate
+  # ==========================================================================
+  # Asserts that SOMETHING reviewed the commit this run is building. Two ways
+  # to satisfy it, and under the unified review model (zero-drift Step 5c.0)
+  # the FIRST one is the primary path, not an escape hatch:
+  #
+  #   1. An operator ran the in-session subscription reviewers (/code-review,
+  #      /security-review, /pr-review-toolkit:review-pr) and applied the
+  #      `reviewed-in-session` label. This is the real reviewer. It is free,
+  #      never rate-limits, and is the only AI review still in the chain.
+  #   2. CodeRabbit posted a genuine review. Advisory-tier and best-effort —
+  #      taken when it happens, never waited on as the sole signal.
+  #
+  # Why this job is allowed to gate at all, when zero-drift says L3 advisory
+  # reviewers NEVER gate: it does not gate on any reviewer's VERDICT. It gates
+  # on whether a review ARTIFACT EXISTS for this commit. Same inputs, same
+  # answer, every run — that is an L1 deterministic check that happens to be
+  # about L2/L3 activity. Nothing here blocks on what a reviewer concluded.
+  #
+  # Costs nothing and needs no ANTHROPIC_API_KEY — GITHUB_TOKEN only.
+  #
+  # LIMIT, do not overstate: on a repo without branch protection a red check
+  # cannot block a merge, only make merging an explicit act. On 0K-cool
+  # private repos branch protection is unavailable on the current plan, so
+  # this is visibility, not enforcement. Say so; do not call it a control.
+  reviewed-at-this-commit:
+    name: Reviewed at this commit
+    # PR-only. This workflow also fires on push-to-main and workflow_dispatch,
+    # where there is no pull_request context — without this guard the job fails
+    # on every merge to main and paints the default branch red permanently.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Assert a real review exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          IS_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -eo pipefail
+
+          # Timestamp of the commit this run is reviewing. A CodeRabbit comment
+          # last updated BEFORE this is a review of an earlier push, not of this
+          # one. Committer date (not author date) so a rebase/amend counts as new.
+          HEAD_TIME=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.commit.committer.date')
+          echo "Head commit $HEAD_SHA committed at $HEAD_TIME"
+
+          # PRIMARY PATH: an operator attests that the in-session subscription
+          # reviewers were run on this commit. Deliberately a LABEL, not a magic
+          # commit-message string -- labels are visible in the PR UI,
+          # attributable, and removable.
+          #
+          # The label is checked FOR FRESHNESS against the head commit, exactly
+          # as CodeRabbit's comment is below. A label applied before the commit
+          # under review attests to an earlier diff, so it does not count here.
+          # Without this, one label early in a PR's life waived the gate for
+          # every later push -- the same "green means nobody looked" hole this
+          # job exists to close, relocated into its own escape hatch.
+          #
+          # Read from the timeline rather than the label list: the list says a
+          # label IS present, the timeline says WHEN it was applied. --paginate
+          # --slurp for the same reason as the comment fetch below -- a long PR
+          # timeline pages, and a per-page `last` is not the last.
+          #
+          # The filter is a SEPARATE jq process, not `gh --jq`. `gh api --slurp`
+          # refuses to run with `--jq` at all -- "the --slurp option is not
+          # supported with --jq or --template" (gh 2.83.2), exit 1, no output.
+          # Measured on 0k-talon#53: the first real execution of this job died
+          # in 4 seconds on exactly that. Both queries here had been written
+          # `--paginate --slurp --jq` across three review rounds, which means
+          # this gate could never have passed OR correctly failed. Piping keeps
+          # the pagination fix and drops the incompatibility.
+          LABEL_TIME=$(gh api --paginate --slurp "repos/$REPO/issues/$PR/timeline" \
+            | jq -r '[ .[][]
+                       | select(.event == "labeled")
+                       | select(.label.name == "reviewed-in-session")
+                       | .created_at ] | last // ""')
+
+          if [ -n "$LABEL_TIME" ]; then
+            if [ "$LABEL_TIME" \< "$HEAD_TIME" ]; then
+              echo "::warning::Label 'reviewed-in-session' was applied at $LABEL_TIME," \
+                   "BEFORE the head commit at $HEAD_TIME. It attests to an earlier diff," \
+                   "not this one, so it does not satisfy this gate."
+              echo "::warning::Re-run the in-session reviewers on the current diff, then" \
+                   "remove and re-apply the label."
+            else
+              echo "Label 'reviewed-in-session' applied at $LABEL_TIME, after the head"
+              echo "commit at $HEAD_TIME -- an operator attests the in-session reviewers"
+              echo "were run on THIS commit. Gate satisfied."
+              exit 0
+            fi
+          fi
+
+          # SECONDARY PATH: CodeRabbit. Advisory tier -- taken if it happened,
+          # never the thing we rely on. Skipped entirely where the App is not
+          # installed: it is public-repo-only in this org, so on a private repo
+          # the poll below would burn its full 10 minutes discovering nothing
+          # and then report "CodeRabbit posted no comment", which reads as a CR
+          # failure rather than the truth, which is that the label is the only
+          # available path there.
+          if [ "${IS_PRIVATE}" = "true" ]; then
+            echo "::error::No review recorded for commit $HEAD_SHA." >&2
+            echo "::error::This is a private repo, where the CodeRabbit App is not installed," >&2
+            echo "::error::so the 'reviewed-in-session' label is the only way to satisfy this gate." >&2
+            echo "::error::Run /code-review or /security-review on the current diff, then apply it." >&2
+            exit 1
+          fi
+
+          # CR posts asynchronously; poll rather than race it. 10 attempts,
+          # 60s apart, inside a 20min job timeout.
+          for attempt in $(seq 1 10); do
+            # --paginate AND --slurp are both required. The default page is 30
+            # comments, so without paginate `last` means "last of the first 30".
+            # But --paginate with --jq runs the filter PER PAGE and concatenates
+            # the outputs — it does not build one array — so paginate alone still
+            # yields a per-page last, blended into a multi-line blob. That opens
+            # the mirror-image false positive: a stale rate-limit comment on an
+            # early page would fail a PR that genuinely WAS reviewed.
+            # --slurp collects the pages into an array of arrays; `.[][]`
+            # flattens it so `last` is the true final comment on the thread.
+            # Filtered by a separate jq, not `gh --jq` — see the note on
+            # LABEL_TIME above; the two cannot be combined.
+            cr=$(gh api --paginate --slurp "repos/$REPO/issues/$PR/comments" \
+                 | jq -r '[.[][] | select(.user.login == "coderabbitai[bot]")] | last
+                          | { body: (.body // ""), updated: (.updated_at // "") }')
+            body=$(printf '%s' "$cr" | jq -r '.body')
+            updated=$(printf '%s' "$cr" | jq -r '.updated')
+
+            # FRESHNESS. Measured on 0k-talon#52: CodeRabbit posts ONE comment and
+            # EDITS IT IN PLACE across pushes — created 06:05, updated 06:58, over
+            # four commits. So on a `synchronize` run the previous push's comment is
+            # already present and looks healthy; without this check the job would
+            # pass instantly having never waited for CR to look at the new commits.
+            # That is the same "green means nobody looked" failure this gate exists
+            # to close, reached by a different route.
+            #
+            # `updated_at` is therefore the signal, not `created_at`. ISO-8601 UTC
+            # sorts lexicographically, so a string compare is correct here.
+            if [ -n "$body" ] && [ "$updated" \< "$HEAD_TIME" ]; then
+              echo "attempt $attempt/10: CodeRabbit comment is stale (updated $updated," \
+                   "head commit $HEAD_TIME) -- it has not reviewed this push yet; waiting 60s..."
+              sleep 60
+              continue
+            fi
+
+            if [ -n "$body" ]; then
+              # NOT-YET-A-REVIEW. CodeRabbit posts a placeholder comment within
+              # seconds of a PR opening -- "Currently processing new changes in
+              # this PR" -- and only later EDITS it into the actual review. That
+              # stub is fresh by definition and carries no rate-limit marker, so
+              # without this check it satisfies the pass branch below.
+              #
+              # Observed 2026-07-28 on mnemosyne#65, the first PR to run this job
+              # on that repo: gate green in 6 seconds, CodeRabbit check still
+              # "Review in progress". A third route from "did not review" to
+              # "green", inside the job written to close the other two.
+              #
+              # Keyed on the auto-generated HTML marker rather than the prose,
+              # which is user-visible and likelier to be reworded.
+              if printf '%s' "$body" | grep -qiF 'review in progress by coderabbit.ai'; then
+                echo "attempt $attempt/10: CodeRabbit has posted only its" \
+                     "'review in progress' placeholder, not a review; waiting 60s..."
+                sleep 60
+                continue
+              fi
+
+              # DELIBERATELY NARROW: these two markers are the one failure mode
+              # actually observed (0k-talon#52, twice). CodeRabbit has other
+              # "did not really review" states — path-filter exclusion, draft-PR
+              # skip, "nothing to review" on a docs-only diff — that match
+              # neither phrase and would fall through to the pass branch below.
+              # Widen only against an observed instance; do not guess at strings.
+              if printf '%s' "$body" | grep -qiE 'review limit reached|rate limited by coderabbit'; then
+                echo "::error::CodeRabbit is RATE LIMITED and did not review this PR." >&2
+                echo "::error::Its status check reports 'pass' regardless -- that green means nobody looked." >&2
+                echo "::error::Fix: run an in-session subscription review (/pr-review-toolkit:review-pr," >&2
+                echo "::error::/security-review) and add the 'reviewed-in-session' label, or wait for the" >&2
+                echo "::error::CodeRabbit limit to reset and re-run this job." >&2
+                exit 1
+              fi
+              echo "CodeRabbit posted a review with no rate-limit marker."
+              exit 0
+            fi
+
+            echo "attempt $attempt/10: no CodeRabbit comment yet; waiting 60s..."
+            sleep 60
+          done
+
+          echo "::error::No review recorded for commit $HEAD_SHA." >&2
+          echo "::error::CodeRabbit posted nothing within 10 minutes, and no fresh" >&2
+          echo "::error::'reviewed-in-session' label is present." >&2
+          echo "::error::Treating absence as NOT REVIEWED rather than assuming success." >&2
+          echo "::error::Fix, in preference order: run /code-review or /security-review on the" >&2
+          echo "::error::current diff and apply the 'reviewed-in-session' label -- that is the" >&2
+          echo "::error::primary path, and it does not depend on CodeRabbit being up." >&2
+          exit 1
